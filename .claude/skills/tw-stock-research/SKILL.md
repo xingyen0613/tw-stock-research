@@ -120,7 +120,18 @@ Phase A、B 全部派 subagent 執行，主對話不自己下場查資料。派�
 
 單檔 HTML 寫到 `reports/`，用 `SendUserFile` 送給使用者（`display: "render"`）。
 
-**不要用瀏覽器工具開來截圖確認。** 一張截圖約 35K token，而使用者從 SendUserFile 看到的畫面完全一樣。要自查渲染有沒有壞，用 `grep` 確認 canvas id、Chart.js 的 `new Chart` 數量、以及每個 `{{}}` 佔位符都已替換掉即可。
+**不要用瀏覽器工具開來截圖確認。** 一張截圖約 35K token，而使用者從 SendUserFile 看到的畫面完全一樣。要自查渲染有沒有壞，用 `grep` 確認這四件事就夠：
+
+```bash
+grep -c "new Chart" report.html          # 應為 4
+grep -o 'id="c[0-9]"' report.html        # canvas id 齊全
+grep -c "{{" report.html                 # 應為 0，佔位符全部替換完
+grep -o 'data-report="[^"]*"' report.html # 應為實際的 代號-日期，不是 {{}}
+```
+
+最後一項最容易漏：`data-report` 是個人筆記存在瀏覽器裡的 key，沒填的話不同報告的筆記會互相覆蓋。
+
+報告底部的「個人筆記」與「匯出 PDF」是模板內建功能，**照抄即可，不要改動那段 JS，也不要幫使用者預填筆記內容。**
 
 報告送出後，跑用量統計並把表格直接貼在 session 中回覆給使用者：
 
