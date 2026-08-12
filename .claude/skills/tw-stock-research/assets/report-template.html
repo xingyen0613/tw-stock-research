@@ -1,0 +1,276 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{公司名}}（{{代號}}）研究報告</title>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=Noto+Sans+TC:wght@400;500;700&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<style>
+:root{
+  --paper:#F1F3F2; --card:#FFFFFF; --ink:#171C19; --ink-soft:#5A625D;
+  --rule:#D6DBD8;
+  --l1:#1B6B4A; --l2:#A8701F; --l3:#78807B; --alert:#8C2F2F;
+  --mono:'IBM Plex Mono',ui-monospace,monospace;
+  --sans:'Noto Sans TC',system-ui,-apple-system,'PingFang TC','Microsoft JhengHei',sans-serif;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--paper);color:var(--ink);font-family:var(--sans);
+  font-size:15px;line-height:1.75;-webkit-font-smoothing:antialiased}
+.wrap{max-width:1080px;margin:0 auto;padding:0 24px 96px}
+
+/* ── 頁首 ───────────────────────────── */
+header{padding:56px 0 32px;border-bottom:2px solid var(--ink)}
+.ticker{font-family:var(--mono);font-size:13px;letter-spacing:.14em;color:var(--ink-soft)}
+h1{font-size:clamp(28px,5vw,42px);margin:.15em 0 .3em;font-weight:700;letter-spacing:-.01em}
+.thesis{font-size:18px;max-width:62ch;color:var(--ink)}
+.stamp{font-family:var(--mono);font-size:12px;color:var(--ink-soft);margin-top:20px}
+
+/* ── 來源等級標記（本報告的核心裝置）─────── */
+.tier{font-family:var(--mono);font-size:9px;font-weight:600;vertical-align:super;
+  padding:1px 3px;border-radius:2px;text-decoration:none;margin-left:2px;letter-spacing:.03em}
+.t1{background:rgba(27,107,74,.13);color:var(--l1)}
+.t2{background:rgba(168,112,31,.15);color:var(--l2)}
+.t3{background:rgba(120,128,123,.16);color:var(--l3)}
+.tier:hover{filter:brightness(.85)}
+.legend{display:flex;gap:20px;flex-wrap:wrap;font-size:13px;color:var(--ink-soft);
+  padding:14px 18px;background:var(--card);border:1px solid var(--rule);border-radius:4px;margin:28px 0}
+
+/* ── 區塊 ───────────────────────────── */
+section{margin-top:52px;scroll-margin-top:20px}
+.eyebrow{font-family:var(--mono);font-size:11px;letter-spacing:.16em;color:var(--ink-soft);
+  text-transform:uppercase}
+h2{font-size:24px;margin:.2em 0 .7em;font-weight:700;letter-spacing:-.01em}
+h3{font-size:17px;margin:2em 0 .6em;font-weight:700}
+.part{margin-top:72px;padding-top:20px;border-top:2px solid var(--ink)}
+.part .eyebrow{color:var(--ink)}
+
+/* ── 卡片 ───────────────────────────── */
+.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;margin:24px 0}
+.card{background:var(--card);border:1px solid var(--rule);border-radius:4px;padding:16px}
+.card .k{font-size:12px;color:var(--ink-soft)}
+.card .v{font-family:var(--mono);font-size:23px;font-weight:600;margin-top:4px}
+.card .d{font-family:var(--mono);font-size:10px;color:var(--ink-soft);margin-top:6px}
+
+/* ── 表格 ───────────────────────────── */
+table{width:100%;border-collapse:collapse;margin:18px 0;background:var(--card);
+  border:1px solid var(--rule);font-size:14px}
+th{text-align:left;font-size:12px;letter-spacing:.05em;color:var(--ink-soft);
+  padding:11px 14px;border-bottom:1px solid var(--rule);font-weight:500;white-space:nowrap}
+td{padding:11px 14px;border-bottom:1px solid var(--rule)}
+tr:last-child td{border-bottom:none}
+td.num,th.num{font-family:var(--mono);text-align:right}
+.pos{color:var(--l1)} .neg{color:var(--alert)}
+.scroll{overflow-x:auto}
+
+/* ── 圖表 ───────────────────────────── */
+figure{margin:28px 0;background:var(--card);border:1px solid var(--rule);border-radius:4px;padding:20px}
+figure .cap{font-family:var(--mono);font-size:11px;color:var(--ink-soft);margin-top:14px;line-height:1.6}
+.chartbox{position:relative;height:340px}
+
+/* ── 未驗證區塊 ─────────────────────── */
+.unverified{border:1px dashed var(--alert);border-left:4px solid var(--alert);
+  background:rgba(140,47,47,.04);border-radius:4px;padding:20px 22px}
+.unverified .warn{font-family:var(--mono);font-size:12px;color:var(--alert);
+  letter-spacing:.08em;margin-bottom:10px}
+
+/* ── Q&A ───────────────────────────── */
+.qa{border-left:2px solid var(--rule);padding-left:18px;margin:16px 0}
+.qa .q{font-weight:700;margin-bottom:4px}
+.qa .a{color:var(--ink-soft)}
+
+/* ── 多空對照 ───────────────────────── */
+.debate{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+@media(max-width:720px){.debate{grid-template-columns:1fr}.chartbox{height:280px}}
+
+.note{font-size:13px;color:var(--ink-soft);border-left:2px solid var(--rule);padding-left:14px}
+footer{margin-top:72px;padding-top:24px;border-top:1px solid var(--rule);
+  font-size:12px;color:var(--ink-soft)}
+a{color:inherit}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header>
+  <div class="ticker">{{代號}} · {{產業分類}}</div>
+  <h1>{{公司名}}</h1>
+  <p class="thesis">{{一句話結論}}</p>
+  <div class="stamp">報告產出 {{產出日期}} ｜ 資料截止 {{資料截止日}} ｜ 產業主題：{{focus}}（{{自動判定說明}}）</div>
+</header>
+
+<div class="legend">
+  <span><span class="tier t1">L1</span> 公司官方揭露</span>
+  <span><span class="tier t2">L2</span> 法人／研調</span>
+  <span><span class="tier t3">L3</span> 媒體／社群</span>
+  <span style="color:var(--alert)">虛線框＝未經交叉驗證</span>
+</div>
+
+<!-- 速覽卡片。每張卡片的 .d 一定要寫資料日期 -->
+<div class="cards">
+  <div class="card"><div class="k">股價</div><div class="v">{{}}</div><div class="d">{{日期}}</div></div>
+  <!-- 市值／本益比／最新季 EPS／月營收年增／殖利率 -->
+</div>
+
+<!-- ══ 第一部分：官方 ══════════════════ -->
+<div class="part"><div class="eyebrow">第一部分</div><h2>官方揭露資料</h2></div>
+
+<section>
+  <div class="eyebrow">02</div><h2>最新一季財務摘要</h2>
+  <div class="scroll"><table>
+    <thead><tr><th>指標</th><th class="num">數值</th><th class="num">QoQ</th><th class="num">YoY</th><th>備註</th></tr></thead>
+    <tbody>
+      <!-- 每個數字掛連結：
+           <td class="num">93.28<a class="tier t1" href="URL" title="來源 · 日期 · L1">L1</a></td> -->
+    </tbody>
+  </table></div>
+</section>
+
+<section>
+  <div class="eyebrow">03</div><h2>業務別營收拆解</h2>
+  <div class="scroll"><table><!-- 列＝業務別，欄＝近 4 季 --></table></div>
+  <p class="note">分類變動說明：{{}}</p>
+
+  <figure>
+    <div class="chartbox"><canvas id="c1"></canvas></div>
+    <div class="cap">圖 1 · 各季業務別營收占比｜來源：{{}}｜等級 L1</div>
+  </figure>
+  <figure>
+    <div class="chartbox"><canvas id="c2"></canvas></div>
+    <div class="cap">圖 2 · 各季業務別營收金額｜{{金額為占比推算值時在此註明}}</div>
+  </figure>
+  <figure>
+    <div class="chartbox"><canvas id="c3"></canvas></div>
+    <div class="cap">圖 3 · 獲利能力趨勢｜實線＝公司整體(L1)，虛線＝第三方推估(L2/L3)</div>
+  </figure>
+  <figure>
+    <div class="chartbox"><canvas id="c4"></canvas></div>
+    <div class="cap">圖 4 · 單季營收與 EPS｜{{業外因素扭曲的季度在此註明}}</div>
+  </figure>
+</section>
+
+<section><div class="eyebrow">04</div><h2>官方財測與展望</h2>
+  <!-- 4.1 下一季 / 4.2 全年與次年 / 4.3 中長期計畫（產能、新產品時程表、CAGR）
+       每個財測後標註發布日期 --></section>
+
+<section><div class="eyebrow">05</div><h2>管理層關鍵發言</h2></section>
+
+<section><div class="eyebrow">06</div><h2>法說會 Q&amp;A</h2>
+  <div class="qa"><div class="q">Q：{{}}</div><div class="a">A：{{}}</div></div>
+</section>
+
+<!-- ══ 第二部分：非官方 ════════════════ -->
+<div class="part"><div class="eyebrow">第二部分</div><h2>第三方分析</h2></div>
+
+<section><div class="eyebrow">07</div><h2>法人財測彙整</h2>
+  <div class="scroll"><table>
+    <thead><tr><th>機構</th><th>發布</th><th class="num">目標價</th><th class="num">EPS 預估</th><th class="num">營收預估</th><th>關鍵假設</th></tr></thead>
+    <tbody><!-- 依發布時間新到舊 --></tbody>
+  </table></div>
+  <p class="note">分歧點：{{各家預估差在哪、來自什麼假設差異}}</p>
+</section>
+
+<section><div class="eyebrow">08</div><h2>官方未揭露項目的第三方推估</h2>
+  <p class="note">本章全部為第三方推估值，公司從未證實。業務別毛利率、業務別 EPS、單一產品 ASP 與市占率均屬此類。</p>
+</section>
+
+<section><div class="eyebrow">09</div><h2>產業分析：{{focus}}</h2></section>
+
+<section><div class="eyebrow">10</div><h2>多空論點</h2>
+  <div class="debate">
+    <div class="card"><h3 style="margin-top:0">多方</h3></div>
+    <div class="card"><h3 style="margin-top:0">空方</h3></div>
+  </div>
+</section>
+
+<!-- ══ 第三部分 ═══════════════════════ -->
+<div class="part"><div class="eyebrow">第三部分</div><h2>追蹤與稽核</h2></div>
+
+<section><div class="eyebrow">11</div><h2>最新未驗證動態</h2>
+  <div class="unverified">
+    <div class="warn">尚未經第二來源確認 · 不應作為決策依據</div>
+    <!-- 每則：日期 / 內容 / 唯一來源 / 為何尚未驗證 -->
+  </div>
+</section>
+
+<section><div class="eyebrow">12</div><h2>風險與觀察點</h2>
+  <!-- 每條要具體到「觀察什麼指標、什麼時間點揭曉」 --></section>
+
+<section><div class="eyebrow">13</div><h2>來源清單與驗證紀錄</h2>
+  <div class="scroll"><table>
+    <thead><tr><th>來源</th><th>等級</th><th>日期</th><th>連結</th></tr></thead><tbody></tbody>
+  </table></div>
+  <h3>驗證結果</h3>
+  <!-- 檢查 N 項／通過 N／有疑慮 N；疑慮清單與處理方式 -->
+</section>
+
+<footer>
+  資料整理自公開來源，正式數據以公開資訊觀測站公告為準。本報告不構成投資建議。
+</footer>
+</div>
+
+<script>
+// 色盤：業務別依序取用，跨圖表保持同一業務同一色。
+// 依序取用、不循環；第 9 個業務別併入「其他」，不要自己生新顏色。
+// 已驗證（白底 #FFFFFF，相鄰配對）：最差 CVD ΔE 9.1、正常視覺 ΔE 19.6，皆通過。
+// 其中 aqua/yellow/magenta 對白底對比 < 3:1，因此每張圖都必須搭配圖例與第 3 章表格
+// —— 顏色不可以是唯一的辨識管道。不要單獨改動某個色碼，要換整組並重跑驗證器。
+const SEG = ['#2a78d6','#eb6834','#1baf7a','#eda100','#e87ba4','#008300','#4a3aa7','#e34948'];
+const SURFACE = '#FFFFFF';   // 堆疊區塊之間的隔線色，用卡片底色
+Chart.defaults.font.family = "'IBM Plex Mono','Noto Sans TC',monospace";
+Chart.defaults.font.size = 11;
+Chart.defaults.color = '#5A625D';
+Chart.defaults.borderColor = '#E1E0D9';           // 格線退到背景
+Chart.defaults.plugins.legend.labels.boxWidth = 10;
+Chart.defaults.plugins.legend.labels.usePointStyle = true;
+const QUARTERS = ['{{Q-3}}','{{Q-2}}','{{Q-1}}','{{Q0}}'];
+
+// 圖 1 — 業務別占比（堆疊柱狀，Y 軸 0–100）
+// 堆疊區塊之間留 2px 底色隔線，相鄰色才不會糊在一起
+new Chart(c1, {type:'bar', data:{labels:QUARTERS, datasets:[
+  // {label:'伺服器', data:[..], backgroundColor:SEG[0],
+  //  borderColor:SURFACE, borderWidth:{top:2}, borderRadius:2}
+]}, options:{maintainAspectRatio:false,
+  scales:{x:{stacked:true,grid:{display:false}},
+          y:{stacked:true,max:100,ticks:{callback:v=>v+'%'}}},
+  plugins:{legend:{position:'bottom'},
+           tooltip:{callbacks:{label:c=>`${c.dataset.label}：${c.parsed.y}%`}}}}});
+
+// 圖 2 — 業務別營收金額（分組柱狀）
+new Chart(c2, {type:'bar', data:{labels:QUARTERS, datasets:[]},
+  options:{maintainAspectRatio:false,
+    datasets:{bar:{borderRadius:4, borderSkipped:'bottom'}},  // 資料端圓角，貼齊基線
+    scales:{x:{grid:{display:false}}, y:{ticks:{callback:v=>v+' 億'}}},
+    plugins:{legend:{position:'bottom'},
+             tooltip:{callbacks:{label:c=>`${c.dataset.label}：${c.parsed.y} 億`}}}}});
+
+// 圖 3 — 獲利能力（實線 L1，虛線為第三方推估，borderDash:[6,4]）
+new Chart(c3, {type:'line', data:{labels:QUARTERS, datasets:[
+  // {label:'毛利率', data:[..], borderColor:SEG[0], tension:.25}
+  // {label:'伺服器毛利率（第三方推估）', data:[..], borderColor:SEG[0], borderDash:[6,4]}
+]}, options:{maintainAspectRatio:false, spanGaps:false,
+  datasets:{line:{borderWidth:2, pointRadius:4, pointHoverRadius:6,
+                  pointBackgroundColor:SURFACE, pointBorderWidth:2}},
+  interaction:{mode:'index', intersect:false},   // 十字準星式 tooltip
+  scales:{x:{grid:{display:false}}, y:{ticks:{callback:v=>v+'%'}}},
+  plugins:{legend:{position:'bottom'},
+           tooltip:{callbacks:{label:c=>`${c.dataset.label}：${c.parsed.y}%`}}}}});
+
+// 圖 4 — 營收（柱，左軸）＋ EPS（線，右軸）
+// 註：雙 Y 軸是刻意保留的既有規格。兩軸刻度不可比，讀者只能看趨勢不能比高低，
+// 因此圖下必須寫明「左軸營收／右軸 EPS，兩軸不同尺度」。
+new Chart(c4, {data:{labels:QUARTERS, datasets:[
+  {type:'bar', label:'營收(億)', data:[], backgroundColor:SEG[0]+'33',
+   borderColor:SEG[0], borderWidth:1, borderRadius:4, borderSkipped:'bottom', yAxisID:'y'},
+  {type:'line', label:'EPS(元)', data:[], borderColor:SEG[1], borderWidth:2,
+   pointRadius:4, pointBackgroundColor:SURFACE, pointBorderWidth:2, tension:.25, yAxisID:'y1'}
+]}, options:{maintainAspectRatio:false,
+  interaction:{mode:'index', intersect:false},
+  scales:{x:{grid:{display:false}}, y:{position:'left'},
+          y1:{position:'right',grid:{display:false}}},
+  plugins:{legend:{position:'bottom'}}}});
+
+// 缺資料的季度填 null，Chart.js 會自動留空。禁止內插補值。
+</script>
+</body>
+</html>

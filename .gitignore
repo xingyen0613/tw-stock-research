@@ -1,0 +1,14 @@
+.DS_Store
+.env
+.env.*
+
+# Claude Code 本機個人設定
+.claude/settings.local.json
+
+# 報告產出（不追蹤，每次重跑會重新產生）
+output/
+reports/
+*.tmp
+
+# 驗證用暫存
+.playwright-mcp/
