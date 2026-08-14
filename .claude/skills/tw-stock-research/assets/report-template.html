@@ -103,6 +103,8 @@ a{color:inherit}
 /* ── 匯出面板 ───────────────────────── */
 #export{background:var(--card);border:1px solid var(--rule);border-radius:4px;padding:20px 22px}
 #export .hint{font-size:13px;color:var(--ink-soft);margin:0 0 14px}
+#sendStatus{font-size:12.5px;color:var(--ink-soft);margin:12px 0 0;min-height:1.5em}
+#sendStatus.ok{color:var(--l1)} #sendStatus.err{color:var(--alert)}
 .sec-list{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));
   gap:2px 18px;margin-bottom:16px}
 .sec-list label{display:flex;align-items:center;gap:8px;padding:5px 0;font-size:14px;cursor:pointer}
@@ -123,7 +125,7 @@ a{color:inherit}
 
 /* ── 列印／匯出 PDF ─────────────────── */
 @media print{
-  @page{margin:14mm 12mm}
+  @page{size:A4;margin:14mm 12mm}
   .no-print,#jump,#export{display:none!important}
   .print-off{display:none!important}
   body{background:#fff;font-size:11.5pt;line-height:1.6}
@@ -269,16 +271,20 @@ a{color:inherit}
 
 <!-- ══ 匯出設定（本身不會被印出）══ -->
 <section id="export" class="no-print">
-  <div class="eyebrow">匯出</div><h2 style="font-size:20px">匯出 PDF</h2>
-  <p class="hint">勾選要放進 PDF 的章節，然後按「匯出 PDF」——在瀏覽器的列印視窗選擇「另存為 PDF」。取消勾選的章節不會出現在檔案裡。</p>
+  <div class="eyebrow">匯出</div><h2 style="font-size:20px">匯出與分享</h2>
+  <p class="hint">勾選要放進 PDF 的章節。「匯出 PDF」會開瀏覽器的列印視窗，選「另存為 PDF」；
+    「發送到 TG」則是在本機直接轉檔並送進 Telegram 頻道，需要先啟動本機發送服務（tg_bridge.py）。
+    兩者都吃同一份勾選，取消勾選的章節不會出現在檔案裡。</p>
   <div class="sec-list" id="secList"></div>
   <div class="exp-actions">
     <button type="button" class="btn" id="doPrint">匯出 PDF</button>
+    <button type="button" class="btn" id="doSend">發送到 TG</button>
     <button type="button" class="btn ghost" id="selAll">全選</button>
     <button type="button" class="btn ghost" id="selNone">全不選</button>
     <button type="button" class="btn ghost" id="selReset">回到預設</button>
     <span class="exp-count" id="secCount"></span>
   </div>
+  <p id="sendStatus"></p>
 </section>
 
 <footer>
@@ -359,6 +365,10 @@ new Chart(c4, {data:{labels:QUARTERS, datasets:[
 (function(){
   const RID = document.body.dataset.report || document.title || 'report';
   const K_NOTE = 'note:' + RID, K_SEC = 'sec:' + RID;
+  // 本機發送服務（scripts/tg_bridge.py）用 headless 瀏覽器印 PDF 時會注入 __TG_PRELOAD，
+  // 帶進筆記與章節勾選——那個瀏覽器是獨立 profile，讀不到這台電腦的 localStorage。
+  const PRE = window.__TG_PRELOAD || null;
+  const BRIDGE = 'http://127.0.0.1:8787';   // 要與 tg_bridge.py 的 --port 一致
 
   // localStorage 在某些開啟方式下不可用（例如隱私模式），退化成僅本次有效
   const mem = {};
@@ -376,7 +386,7 @@ new Chart(c4, {data:{labels:QUARTERS, datasets:[
     const n = box.value.trim().length;
     status.textContent = n ? `已儲存 ${n} 字 · ${new Date().toLocaleString('zh-TW',{month:'numeric',day:'numeric',hour:'2-digit',minute:'2-digit'})}` : '尚未輸入';
   };
-  box.value = store.get(K_NOTE) || '';
+  box.value = (PRE ? PRE.note : store.get(K_NOTE)) || '';
   grow(); stamp();
 
   let timer;
@@ -434,9 +444,9 @@ new Chart(c4, {data:{labels:QUARTERS, datasets:[
     if(save) store.set(K_SEC, JSON.stringify(boxes.filter(b=>!b.checked).map(b=>b.dataset.t)));
   }
 
-  // 還原上次的勾選狀態
+  // 還原上次的勾選狀態（headless 轉檔時改用 __TG_PRELOAD 帶進來的那份）
   try{
-    const off = JSON.parse(store.get(K_SEC) || '[]');
+    const off = PRE ? (PRE.off || []) : JSON.parse(store.get(K_SEC) || '[]');
     boxes.forEach(b => { if(off.includes(b.dataset.t)) b.checked = false; });
   }catch(e){}
   apply(false);
@@ -453,6 +463,43 @@ new Chart(c4, {data:{labels:QUARTERS, datasets:[
     grow();                                   // 確保筆記在列印時完整展開，不留捲軸
     setTimeout(() => window.print(), 60);     // 等 reflow 完成再開列印視窗
   });
+  /* ── 發送到 Telegram ──
+     報告自己不碰 bot token（報告會被分享出去），也不自己產 PDF——window.print() 產出的
+     檔案 JS 拿不到。這裡只把「哪些章節不要」與筆記內容交給本機服務，由它轉檔並發送。 */
+  const sendBtn = document.getElementById('doSend');
+  const sendMsg = document.getElementById('sendStatus');
+  const setMsg = (text, kind) => { sendMsg.textContent = text; sendMsg.className = kind || ''; };
+
+  sendBtn.addEventListener('click', async () => {
+    if(!boxes.some(b => b.checked)){ setMsg('至少要勾選一個章節才能發送。', 'err'); return; }
+    store.set(K_NOTE, box.value); stamp();
+
+    const off = boxes.filter(b => !b.checked).map(b => b.dataset.t);
+    if(!box.value.trim() && !off.includes('notes')) off.push('notes');  // 沒寫筆記就不要印出空白框
+    const file = decodeURIComponent((location.pathname.split('/').pop() || ''));
+
+    sendBtn.disabled = true;
+    setMsg('正在轉 PDF 並發送⋯⋯（約 10–30 秒，別關掉這個分頁）');
+    try{
+      const r = await fetch(BRIDGE + '/api/send', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({file, note: box.value, off, caption: document.title})
+      });
+      const d = await r.json().catch(() => ({}));
+      if(r.ok && d.ok){
+        setMsg(`已發送到 Telegram · ${(d.bytes/1048576).toFixed(1)} MB · 共 ${boxes.filter(b=>b.checked).length} 個章節 · PDF 留在 reports/pdf/`, 'ok');
+      }else{
+        setMsg('發送失敗：' + (d.error || ('HTTP ' + r.status)), 'err');
+      }
+    }catch(e){
+      setMsg('連不到本機發送服務（' + BRIDGE + '）。請先在終端機啟動 tg_bridge.py，並從 '
+             + BRIDGE + ' 開啟這份報告，再試一次。', 'err');
+    }finally{
+      sendBtn.disabled = false;
+    }
+  });
+
   document.getElementById('jump').addEventListener('click', () => {
     document.getElementById('export').scrollIntoView({behavior:'smooth', block:'center'});
   });

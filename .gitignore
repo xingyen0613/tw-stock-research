@@ -6,9 +6,14 @@
 .claude/settings.local.json
 
 # 報告產出（不追蹤，每次重跑會重新產生）
+# 前導斜線是刻意的：只忽略專案根目錄的 reports/，這樣報告若被誤寫到別的目錄
+# （例如 skill 自己的資料夾底下）會出現在 git status，不會被靜默忽略。
 output/
-reports/
+/reports/
 *.tmp
 
 # 驗證用暫存
 .playwright-mcp/
+
+# Python 快取
+__pycache__/

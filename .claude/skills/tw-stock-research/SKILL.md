@@ -118,7 +118,10 @@ Phase A、B 全部派 subagent 執行，主對話不自己下場查資料。派�
 
 ### Phase E — 輸出與用量回報
 
-單檔 HTML 寫到 `reports/`，用 `SendUserFile` 送給使用者（`display: "render"`）。
+單檔 HTML 寫到**專案根目錄**的 `reports/`（既有報告所在的那個），用 `SendUserFile` 送給使用者（`display: "render"`）。
+
+**不要寫到 skill 自己的目錄底下。** 寫檔前先確認 cwd 是專案根目錄，或直接用絕對路徑——
+曾經發生過報告被寫到 `.claude/skills/tw-stock-research/reports/` 的情形。
 
 **不要用瀏覽器工具開來截圖確認。** 一張截圖約 35K token，而使用者從 SendUserFile 看到的畫面完全一樣。要自查渲染有沒有壞，用 `grep` 確認這四件事就夠：
 
@@ -131,7 +134,9 @@ grep -o 'data-report="[^"]*"' report.html # 應為實際的 代號-日期，不�
 
 最後一項最容易漏：`data-report` 是個人筆記存在瀏覽器裡的 key，沒填的話不同報告的筆記會互相覆蓋。
 
-報告底部的「個人筆記」與「匯出 PDF」是模板內建功能，**照抄即可，不要改動那段 JS，也不要幫使用者預填筆記內容。**
+報告底部的「個人筆記」與「匯出與分享」是模板內建功能，**照抄即可，不要改動那段 JS，也不要幫使用者預填筆記內容。**
+
+「發送到 TG」按鈕會打本機的 `scripts/tg_bridge.py`（見下節），報告本身不含任何 bot token。使用者若說按鈕沒反應，先確認他是不是直接雙擊開檔——按鈕要從 `http://127.0.0.1:8787` 開啟的報告才保證能用。
 
 報告送出後，跑用量統計並把表格直接貼在 session 中回覆給使用者：
 
@@ -182,6 +187,22 @@ Haiku 錯一次就升 Sonnet，不要在 Haiku 上重試第二次。
 
 報告的完整章節規格、每一區該放什麼、四張圖表的定義，讀 `references/report-structure.md`。
 HTML 模板、配色與 Chart.js 用法，讀 `assets/report-template.html`。
+
+## 發送到 Telegram
+
+報告裡的「發送到 TG」按鈕需要本機服務 `scripts/tg_bridge.py` 在跑：
+
+```bash
+python3 .claude/skills/tw-stock-research/scripts/tg_bridge.py
+```
+
+然後從 `http://127.0.0.1:8787` 開報告（不是雙擊檔案）。服務會用 headless Chrome 把報告印成 PDF，
+連同筆記與章節勾選一起帶進去，再用 Bot API `sendDocument` 發到設定好的頻道。
+bot token 存在 `~/.config/tw-stock-tg/config.json`，**永遠不進報告 HTML、不進 repo**。
+
+舊報告（沒有按鈕的）用 CLI 發：`python3 …/tg_bridge.py --send reports/xxx.html`。
+
+設定步驟、bot 權限、錯誤訊息對照，讀 `references/telegram-sending.md`。
 
 ## 三條不可妥協的規則
 
