@@ -17,3 +17,6 @@ output/
 
 # Python 快取
 __pycache__/
+
+# 圖檔讀取逃生門（臨時 flag，用完即刪，不該被追蹤）
+.claude/.allow-image-read

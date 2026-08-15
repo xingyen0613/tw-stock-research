@@ -152,8 +152,22 @@ python3 .claude/skills/tw-stock-research/scripts/token_report.py --tools
 
 1. **一律先 `pdftotext -layout`**，整份轉成 `.txt` 存檔。業務別營收占比那種表格，`-layout` 能完整保留欄位對齊。
 2. **不要把整份 `.txt` 讀進 context。** 先 `grep -n` 找關鍵字（`營收比重`、`Revenue share`、`Business Coverage`、`Outlook`、`Guidance`）定位頁碼，再用 `sed -n 'X,Yp'` 或 `Read` 的 `offset`/`limit` 只取那一段。
-3. **只有 `pdftotext` 抽不出東西時**（純圖片型簡報、掃描檔）才轉圖，而且：單頁、`-r 100`、只轉需要的那一頁、看完即刪。轉圖前先說明為什麼非轉不可。
-4. **禁止對同一頁重複轉圖或重複 Read。** 需要再看，回去讀 `.txt`。
+3. **圖表標籤看起來重複或對不上欄位時，不要轉圖，用座標拆。** `-layout` 會把堆疊長條圖的標籤按視覺位置攤平，同一組數字常在版面左緣被重印一次，看起來像是多了一組資料。這時跑：
+
+   ```bash
+   python3 .claude/skills/tw-stock-research/scripts/pdf_chart_probe.py <pdf> <page> -p '%$'
+   ```
+
+   它用 `pdftotext -bbox-layout` 的座標把 word 依 x 分群，並列出底部各行讓你對齊 X 軸標籤：**最接近某個軸標籤的群就是該欄位的數值，落在所有軸標籤之外的群是版面重印，不是資料。** 單頁輸出約 850 chars。分群被切太碎就加大 `-t` 容差重跑。
+
+   `grep -A/-B` 抓更大範圍**解不了這題**——`-layout` 已經丟掉座標，孤立的 `19%` 前後行沒有任何能判定歸屬的線索。
+
+4. **只有 `pdftotext` 完全抽不出文字時**（純圖片型簡報、掃描檔）才轉圖，而且：單頁、`-r 100`、只轉需要的那一頁、看完即刪。轉圖前先向使用者說明為什麼非轉不可。
+5. **禁止對同一頁重複轉圖或重複 Read。** 需要再看，回去讀 `.txt` 或跑 probe。
+
+第 3–5 條有 PreToolUse hook 硬性把關（`.claude/hooks/block-pdf-rasterize.py`）：`pdftoppm`／`pdfimages` 一類指令與 `Read` 圖檔會被直接擋下，錯誤訊息會指回 probe 腳本。真的非看圖不可時，取得使用者同意後 `touch .claude/.allow-image-read`，**用完立刻刪掉**。
+
+> 這幾條是 2026-08-14 力成(6239)報告的實帳單：A-3 為了核對堆疊長條圖，9 次 Read PNG 吃掉 326 萬 chars（≈130 萬 token），佔它工具回傳量的 97.4%、整份報告成本的 13.9%。數字最後是對的，但用 probe 腳本能得到同一組數字，代價是 1/400。
 
 ## 模型分配
 
@@ -180,6 +194,16 @@ Haiku 錯一次就升 Sonnet，不要在 Haiku 上重試第二次。
 > **禁止把 JSON 內容、網頁原文、PDF 全文、表格資料貼回來。** 主對話會自己去讀檔案。
 
 這是主對話 context 膨脹的頭號來源——一個 agent 把 60KB 的 JSON 貼回來，主對話後續每一個 turn 都要重讀它一次。
+
+**subagent 有獨立 context，不會讀到這份 SKILL.md。寫在這裡的規則，沒貼進 prompt 就等於不存在。** 這不是理論風險：力成那次 A-3 燒掉 130 萬 token，正是因為「PDF 處理鐵則」只寫在 SKILL.md、沒進派工 prompt，那個 agent 從頭到尾不知道有這條規則。
+
+所以凡是會碰到 PDF 或 `.txt` 的 agent（A-1、A-3、D），prompt 裡**必須原文帶上這段**：
+
+> **PDF 與圖檔鐵則**：一律用 `pdftotext -layout`，不要把整份 `.txt` 讀進 context（先 `grep -n` 定位再取那一段）。
+> **禁止把 PDF 轉成圖檔，禁止 Read 任何 .png/.jpg。** 單頁 PNG 約 145,000 token，是文字的 148 倍，而且有 hook 會直接擋下。
+> 圖表標籤看起來重複、對不上欄位時，跑
+> `python3 .claude/skills/tw-stock-research/scripts/pdf_chart_probe.py <pdf> <page> -p '%$'`，
+> 用它輸出的 x 座標分群去對齊 X 軸標籤：最接近某軸標籤的群即該欄位數值，落在所有軸標籤之外的群是版面重印，不是資料。
 
 其餘三件套照 `~/.claude/docs/delegation-templates.md`：目標與動機、驗收條件、回報格式。另外每個 prompt 都要帶上今天日期與「資料新鮮度上限」那張表。
 
