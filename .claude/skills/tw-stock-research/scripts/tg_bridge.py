@@ -5,10 +5,17 @@
 的列印對話框產生，網頁的 JS 拿不到那個檔案，所以沒辦法自己發出去。而 bot token
 也絕對不能寫進報告 HTML（報告會被分享）。因此轉檔與發送都放在這支本機服務裡。
 
-用法：
+平常不必手動啟動：LaunchAgent（com.yen.twstock-tg）讓 launchd 守著 8787，報告頁按下
+「發送到 TG」時才把這支程式叫起來，閒置 120 秒後自動退出，沒人用的時候是零進程。
+安裝與管理方式見 references/telegram-sending.md。
+
+手動用法：
   python3 tg_bridge.py                    啟動服務，然後用瀏覽器開 http://127.0.0.1:8787
   python3 tg_bridge.py --send <報告.html>  不開瀏覽器，直接把整份報告轉檔並發送
   python3 tg_bridge.py --port 9000 --reports /path/to/reports
+
+裝了 LaunchAgent 之後 8787 由 launchd 佔著，不帶 --port 手動啟動會 bind 失敗；
+--send 不開 port，不受影響。
 
 設定檔 ~/.config/tw-stock-tg/config.json：
   {"bot_token": "123456:ABC...", "chat_id": "@your_channel"}
@@ -16,13 +23,18 @@
 """
 
 import argparse
+import ctypes
+import ctypes.util
 import json
 import os
 import re
 import shutil
+import socket
 import subprocess
 import sys
 import tempfile
+import threading
+import time
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -195,6 +207,15 @@ code{font:12px ui-monospace,monospace;background:#f2f1ec;padding:1px 5px;border-
 class Handler(BaseHTTPRequestHandler):
     server_version = 'tw-stock-tg/1.0'
 
+    def handle_one_request(self):
+        # 讓閒置計時器知道現在有沒有請求在跑：轉 PDF 加上傳要 10–30 秒，
+        # 這段期間不能被當成閒置而關掉。
+        self.server.enter()
+        try:
+            BaseHTTPRequestHandler.handle_one_request(self)
+        finally:
+            self.server.leave()
+
     # 惡意網站的 JS 也能對 127.0.0.1 發 POST，所以要擋來源。
     # CORS 只能阻止對方讀回應，擋不住請求造成的副作用（真的發出去了）。
     def _origin_ok(self):
@@ -315,18 +336,91 @@ class Handler(BaseHTTPRequestHandler):
         pass     # 預設的 access log 太吵，只留我們自己的訊息
 
 
-def serve(port, reports_dir):
-    httpd = ThreadingHTTPServer(('127.0.0.1', port), Handler)
+class BridgeServer(ThreadingHTTPServer):
+    """多記兩件事：有幾個請求正在處理、上一個請求何時結束——閒置計時器要用。"""
+
+    def __init__(self, *a, **kw):
+        ThreadingHTTPServer.__init__(self, *a, **kw)
+        self._inflight = 0
+        self._since = time.time()
+        self._lock = threading.Lock()
+
+    def enter(self):
+        with self._lock:
+            self._inflight += 1
+
+    def leave(self):
+        with self._lock:
+            self._inflight -= 1
+            self._since = time.time()
+
+    def idle_seconds(self):
+        with self._lock:
+            return 0 if self._inflight else time.time() - self._since
+
+
+def launchd_socket(name='Listeners'):
+    """接手 launchd 已經開好並綁定的 listening socket。
+
+    launchd 平常只是守著 port、不跑任何進程；第一個連線進來才把這支程式叫起來，
+    再用這個 API 把綁好的 socket 交過來。閒置後我們自己退出，launchd 繼續守著，
+    所以「沒人用的時候零進程、要用的時候自動起來」。
+    """
+    lib = ctypes.CDLL(ctypes.util.find_library('System'), use_errno=True)
+    fn = lib.launch_activate_socket
+    fn.argtypes = [ctypes.c_char_p,
+                   ctypes.POINTER(ctypes.POINTER(ctypes.c_int)),
+                   ctypes.POINTER(ctypes.c_size_t)]
+    fn.restype = ctypes.c_int
+    fds = ctypes.POINTER(ctypes.c_int)()
+    cnt = ctypes.c_size_t(0)
+    rc = fn(name.encode(), ctypes.byref(fds), ctypes.byref(cnt))
+    if rc != 0 or cnt.value < 1:
+        raise SystemExit('拿不到 launchd 的 socket（rc=%d）：--launchd 只能由 launchd 啟動，'
+                         '不要自己在終端機跑' % rc)
+    return socket.socket(socket.AF_INET, socket.SOCK_STREAM, fileno=fds[0])
+
+
+def serve(port, reports_dir, use_launchd=False, idle=0):
+    if use_launchd:
+        sock = launchd_socket()
+        httpd = BridgeServer(('127.0.0.1', 0), Handler, bind_and_activate=False)
+        httpd.socket = sock
+        # 跳過 server_bind 就得自己補這幾個欄位（_origin_ok 會讀 port）
+        httpd.server_address = sock.getsockname()
+        httpd.server_name = socket.getfqdn(httpd.server_address[0])
+        httpd.server_port = port = httpd.server_address[1]
+    else:
+        httpd = BridgeServer(('127.0.0.1', port), Handler)
     httpd.reports_dir = reports_dir
+
     token, chat = load_config()
-    print('報告目錄：%s' % reports_dir)
-    print('Telegram：%s' % ('已設定 → %s' % chat if token and chat
-                            else '尚未設定（請填 %s）' % CONFIG_PATH))
-    print('\n  用瀏覽器開 http://127.0.0.1:%d  （Ctrl-C 結束）\n' % port)
+    if use_launchd:
+        # 這些訊息會進 launchd 的 log 檔，寫成單行方便對時間
+        sys.stderr.write('%s 由 launchd 喚醒（port %d，閒置 %d 秒後自動退出）\n'
+                         % (time.strftime('%H:%M:%S'), port, idle))
+        sys.stderr.flush()
+    else:
+        print('報告目錄：%s' % reports_dir)
+        print('Telegram：%s' % ('已設定 → %s' % chat if token and chat
+                                else '尚未設定（請填 %s）' % CONFIG_PATH))
+        print('\n  用瀏覽器開 http://127.0.0.1:%d  （Ctrl-C 結束）\n' % port)
+
+    if idle > 0:
+        def watchdog():
+            while httpd.idle_seconds() <= idle:
+                time.sleep(5)
+            httpd.shutdown()      # 讓 serve_forever() 收工，進程正常結束
+        threading.Thread(target=watchdog, daemon=True).start()
+
     try:
         httpd.serve_forever()
     except KeyboardInterrupt:
         print('\n已停止')
+        return
+    if use_launchd:
+        sys.stderr.write('%s 閒置滿 %d 秒，退出\n' % (time.strftime('%H:%M:%S'), idle))
+        sys.stderr.flush()
 
 
 def main():
@@ -334,6 +428,10 @@ def main():
     ap.add_argument('--port', type=int, default=8787)
     ap.add_argument('--reports', type=Path, default=None, help='報告目錄')
     ap.add_argument('--send', type=Path, default=None, help='直接發送這份報告（整份、不含筆記）')
+    ap.add_argument('--launchd', action='store_true',
+                    help='接手 launchd 交來的 socket（由 LaunchAgent 啟動，不要手動用）')
+    ap.add_argument('--idle', type=int, default=0,
+                    help='閒置這麼多秒後自動退出；0 表示不自動退出')
     args = ap.parse_args()
 
     reports_dir = (args.reports or default_reports_dir()).resolve()
@@ -350,7 +448,7 @@ def main():
         return
     if not reports_dir.is_dir():
         raise SystemExit('報告目錄不存在：%s（用 --reports 指定）' % reports_dir)
-    serve(args.port, reports_dir)
+    serve(args.port, reports_dir, use_launchd=args.launchd, idle=args.idle)
 
 
 if __name__ == '__main__':

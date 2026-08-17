@@ -493,8 +493,10 @@ new Chart(c4, {data:{labels:QUARTERS, datasets:[
         setMsg('發送失敗：' + (d.error || ('HTTP ' + r.status)), 'err');
       }
     }catch(e){
-      setMsg('連不到本機發送服務（' + BRIDGE + '）。請先在終端機啟動 tg_bridge.py，並從 '
-             + BRIDGE + ' 開啟這份報告，再試一次。', 'err');
+      setMsg('連不到本機發送服務（' + BRIDGE + '）。服務由 launchd 按需啟動，正常情況下'
+             + '不該看到這則訊息——請檢查 ~/Library/Logs/twstock-tg.log，或重新載入 '
+             + 'LaunchAgent：launchctl bootstrap gui/$(id -u) '
+             + '~/Library/LaunchAgents/com.yen.twstock-tg.plist', 'err');
     }finally{
       sendBtn.disabled = false;
     }

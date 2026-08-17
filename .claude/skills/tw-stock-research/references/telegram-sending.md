@@ -40,16 +40,19 @@ mkdir -p ~/.config/tw-stock-tg && printf '{\n  "bot_token": "貼上 BotFather �
 
 ## 日常使用
 
-```bash
-python3 .claude/skills/tw-stock-research/scripts/tg_bridge.py
-```
+**雙擊 `reports/` 裡的 HTML 開起來 → 勾選章節 → 按「發送到 TG」。** 不必先開終端機、
+也不必啟動 Claude。約 10–30 秒後按鈕下方會顯示結果。
 
-啟動後開 `http://127.0.0.1:8787`，會看到 `reports/` 裡所有報告的清單。
-點進報告 → 勾選要發的章節 → 按「發送到 TG」。約 10–30 秒後按鈕下方會顯示結果。
+服務由 launchd 按需啟動（見下一節）：平常沒有任何進程在跑，按下發送的那一刻才被叫起來，
+閒置 120 秒後自己退出。
 
-**一定要從 `http://127.0.0.1:8787` 開報告**，不要雙擊檔案。從 `file://` 開的頁面
-發請求到本機服務屬於跨來源請求，能不能通取決於瀏覽器版本與設定；從 localhost 開就是
-同源，永遠不會有這個問題（服務端仍然放行 `file://`，只是不保證）。
+從 `file://` 直接開沒問題——實測 Chrome 151 下 `file://` 頁面對 `127.0.0.1:8787` 的
+GET 與帶 preflight 的 POST 都會通（服務端有回 `Access-Control-Allow-Private-Network`）。
+萬一哪天瀏覽器改嚴了，改從 `http://127.0.0.1:8787` 開報告即可，那是同源、永遠不會被擋。
+
+**注意 origin 不共通**：筆記與章節勾選存在 localStorage，`file://` 和
+`http://127.0.0.1:8787` 是兩個不同的 origin，各自有一份。固定用同一種方式開就不會有事，
+中途換方式會看到空的筆記。
 
 發送時會一起帶過去的東西：
 
@@ -68,13 +71,45 @@ python3 .claude/skills/tw-stock-research/scripts/tg_bridge.py --send reports/308
 
 CLI 模式會發送整份報告，不含筆記。
 
-換 port：`--port 9000`，但要同步改 `assets/report-template.html` 裡的 `BRIDGE` 常數。
+換 port：`--port 9000`，但要同步改 `assets/report-template.html` 裡的 `BRIDGE` 常數，
+以及下面 LaunchAgent plist 裡的 `SockServiceName`。
+
+## 按需啟動的 LaunchAgent
+
+設定檔：`~/Library/LaunchAgents/com.yen.twstock-tg.plist`
+
+launchd 用 socket activation 守著 `127.0.0.1:8787`——它只持有 listening socket，
+不跑任何進程。第一個連線進來時才啟動 `tg_bridge.py --launchd --idle 120`，程式用
+`launch_activate_socket()` 接手那個已經綁好的 socket；閒置滿 120 秒後自己退出，
+launchd 繼續守著 port。所以沒人用的時候是**零進程**，要用的時候自動起來。
+
+閒置計時只在沒有請求在處理時才累加（`BridgeServer.idle_seconds()`），
+所以轉 PDF 加上傳那 10–30 秒不會被誤判成閒置而中斷。
+
+管理指令：
+
+```bash
+launchctl print gui/$(id -u)/com.yen.twstock-tg   # 看狀態
+tail -f ~/Library/Logs/twstock-tg.log             # 看喚醒與發送記錄
+launchctl bootout gui/$(id -u)/com.yen.twstock-tg                                    # 停用
+launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.yen.twstock-tg.plist     # 啟用
+```
+
+改 idle 秒數或 port 就編輯 plist 的 `ProgramArguments` / `SockServiceName`，
+然後 bootout 再 bootstrap 一次。
+
+### 實測記錄（2026-08-17）
+
+- 請求前零進程 → `curl /api/status` → launchd 拉起、拿到 fd、綁上 8787、正常回應
+- 閒置滿設定秒數後自動退出，port 由 launchd 收回，**再送請求能重複喚醒**
+- `file://` 頁面對 8787 的 GET 與帶 preflight 的 POST 都通過（Chrome 151 headless）
+- 力成報告轉 PDF：3.96 MB / 9 秒，遠低於 50MB 上限
 
 ## 錯誤訊息對照
 
 | 畫面顯示 | 原因與處理 |
 |---------|-----------|
-| 連不到本機發送服務 | `tg_bridge.py` 沒在跑，或 port 不是 8787 |
+| 連不到本機發送服務 | LaunchAgent 沒載入（`launchctl print gui/$(id -u)/com.yen.twstock-tg` 查），或 port 不是 8787。看 `~/Library/Logs/twstock-tg.log` 有沒有啟動失敗訊息 |
 | 還沒設定 bot_token / chat_id | 設定檔沒填或路徑不對，看上面第 3 步 |
 | Telegram 回應 401：Unauthorized | token 錯了或已被 BotFather 撤銷 |
 | Telegram 回應 400：chat not found | `chat_id` 打錯；公開頻道要含 `@`，私人頻道是 `-100` 開頭數字 |

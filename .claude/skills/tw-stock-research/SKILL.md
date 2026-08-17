@@ -136,7 +136,7 @@ grep -o 'data-report="[^"]*"' report.html # 應為實際的 代號-日期，不�
 
 報告底部的「個人筆記」與「匯出與分享」是模板內建功能，**照抄即可，不要改動那段 JS，也不要幫使用者預填筆記內容。**
 
-「發送到 TG」按鈕會打本機的 `scripts/tg_bridge.py`（見下節），報告本身不含任何 bot token。使用者若說按鈕沒反應，先確認他是不是直接雙擊開檔——按鈕要從 `http://127.0.0.1:8787` 開啟的報告才保證能用。
+「發送到 TG」按鈕會打本機的 `scripts/tg_bridge.py`（見下節），報告本身不含任何 bot token。雙擊開檔（`file://`）也能用。使用者若說按鈕沒反應，先查 LaunchAgent 有沒有載入：`launchctl print gui/$(id -u)/com.yen.twstock-tg`。
 
 報告送出後，跑用量統計並把表格直接貼在 session 中回覆給使用者：
 
@@ -214,13 +214,9 @@ HTML 模板、配色與 Chart.js 用法，讀 `assets/report-template.html`。
 
 ## 發送到 Telegram
 
-報告裡的「發送到 TG」按鈕需要本機服務 `scripts/tg_bridge.py` 在跑：
-
-```bash
-python3 .claude/skills/tw-stock-research/scripts/tg_bridge.py
-```
-
-然後從 `http://127.0.0.1:8787` 開報告（不是雙擊檔案）。服務會用 headless Chrome 把報告印成 PDF，
+使用者雙擊開報告、按「發送到 TG」即可，不需要先啟動任何東西：LaunchAgent
+`com.yen.twstock-tg` 讓 launchd 守著 8787，按下發送時才把 `scripts/tg_bridge.py`
+叫起來，閒置 120 秒後自動退出（平常零進程）。服務會用 headless Chrome 把報告印成 PDF，
 連同筆記與章節勾選一起帶進去，再用 Bot API `sendDocument` 發到設定好的頻道。
 bot token 存在 `~/.config/tw-stock-tg/config.json`，**永遠不進報告 HTML、不進 repo**。
 
