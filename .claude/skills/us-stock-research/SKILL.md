@@ -74,7 +74,15 @@ python3 .claude/skills/us-stock-research/scripts/aihot_query.py {標的} --days 
 
 ### Phase C — 結構化（主對話自己做，強制中間產物）
 
-把 Phase A、B 的產物合併成 `data.json`。**用腳本合併，不要把來源 JSON 全部 Read 進 context 再手工拼。**
+把 Phase A、B 的產物合併成 `data.json`。**用腳本合併，不要把來源 JSON 全部 Read 進 context 再手工拼。** 合併腳本寫在該次的 output 目錄下（例如 `output/{標的}_{日期}/merge_data.py`），跑完只讀它印出的摘要（筆數、tier 分布、缺 source_url 數）。
+
+合併時務必做這三件事（都是實跑踩過的坑）：
+
+1. **統一期別寫法。** Polygon 回 `2026 Q1`、segment agent 回 `FY2026 Q1`、有的還帶括號註記（`FY2026 Q4 (standalone)`）。不正規化的話同一季會在圖表上變成兩個點。寫一個 `norm_period()` 全部轉成 `FY{年} Q{季}`。
+2. **金額單位統一成百萬美元。** SEC 表格常是千美元（`USD thousands`），Polygon 是元。混用會讓圖表差 1000 倍。
+3. **缺 `source_url` 的要留 note 說明為什麼缺**，不要留空就當作有來源。實測 Polygon 有些季度就是沒有 `source_filing_url`，而那幾期的財報又不在本次落地範圍內。
+
+**Phase B 的 agent 若失敗需要重派，重派前先確認前一個 agent 有沒有留下同名檔案。** 實測發生過：第一個 agent 把工作轉派給子 agent 後就回報結束（檔案還沒生成），主對話判定失敗而重派，結果那個子 agent 後來也把檔案寫出來，兩者競爭寫入同一路徑。重派時在 prompt 裡明寫「你必須自己完成，不要派 subagent」。
 
 ```json
 {
