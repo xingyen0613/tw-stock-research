@@ -120,7 +120,10 @@ grep -c "new Chart" report.html          # 圖表數量
 grep -o 'id="c[0-9]"' report.html        # canvas id 齊全
 grep -c "{{" report.html                 # 應為 0
 grep -o 'data-report="[^"]*"' report.html # 應為實際的 代號-日期
+grep -c "<figure>" report.html           # 應與 new Chart 數量一致
 ```
+
+**`<figure>` 這項曾經出過事故**：報告把 `<div class="cap">` 直接塞進 `<div class="chartbox">` 內部，沒有用 `<figure>` 包起來。`.chartbox` 是 `height:340px` 固定高度容器，Chart.js 的 canvas 會把 340px 填滿，caption 文字被擠出框外、又不會撐開父層高度，於是跟下一段內容重疊、看起來像亂碼。**每張圖一律照模板結構**：`<figure><div class="chartbox"><canvas id="cN"></canvas></div><div class="cap">...</div></figure>`——`.cap` 永遠是 `.chartbox` 的外層兄弟元素，絕不能寫進 `.chartbox` 裡面。
 
 接著跑用量統計，並把表格貼在 session 中回覆：
 

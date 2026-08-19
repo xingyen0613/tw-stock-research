@@ -130,9 +130,21 @@ grep -c "new Chart" report.html          # 應為 4
 grep -o 'id="c[0-9]"' report.html        # canvas id 齊全
 grep -c "{{" report.html                 # 應為 0，佔位符全部替換完
 grep -o 'data-report="[^"]*"' report.html # 應為實際的 代號-日期，不是 {{}}
+grep -c "<figure>" report.html           # 應為 4，跟 new Chart 數量一致
 ```
 
 最後一項最容易漏：`data-report` 是個人筆記存在瀏覽器裡的 key，沒填的話不同報告的筆記會互相覆蓋。
+
+**`<figure>` 那項曾經漏檢查、實際出過事故**：有一份報告把 `<div class="cap">` 誤塞進 `<div class="chartbox">` 內部（沒有外層 `<figure>`），而不是照模板放在 `.chartbox` 外面。`.chartbox` 是 `height:340px` 的固定高度容器，Chart.js 的 canvas 會把這 340px 填滿，caption 文字被擠到框外、又不會撐開父層高度，於是跟下一個區塊的內容重疊、看起來像亂碼。**畫每張圖一律照抄模板結構**：
+
+```html
+<figure>
+  <div class="chartbox"><canvas id="c1"></canvas></div>
+  <div class="cap">圖 1 · ...</div>
+</figure>
+```
+
+`.cap` 永遠是 `.chartbox` 的**外層兄弟元素**，絕不能寫進 `.chartbox` 裡面。
 
 報告底部的「個人筆記」與「匯出與分享」是模板內建功能，**照抄即可，不要改動那段 JS，也不要幫使用者預填筆記內容。**
 
