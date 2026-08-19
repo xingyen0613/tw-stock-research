@@ -146,6 +146,16 @@ python3 .claude/skills/tw-stock-research/scripts/token_report.py --tools
 
 回報時附一句話說明這次最大的消耗來自哪個階段，以及有沒有異常（例如某個 agent 的工具回傳體積超過 100K chars，就是有東西被整份讀進 context 了）。
 
+**最後記 runlog**（這步不可省，它是日後迭代的唯一依據）。台股與美股共用同一支 `runs.jsonl`，這樣「常見問題」才看得到全貌：
+
+```bash
+python3 .claude/skills/us-stock-research/scripts/runlog.py add \
+  --skill tw-stock-research --ticker {代號} --tokens {總量} --duration {分鐘} \
+  --issues '[{"phase":"B-3","type":"source_missing","detail":"找不到法說會逐字稿","action":"降級標 L3"}]'
+```
+
+`issue.type` 只能是 `source_missing`／`api_not_entitled`／`parse_failed`／`rate_limited`／`data_conflict`／`token_spike`／`other`。**這次沒卡住就傳空陣列，不要不記** — 沒有分母就算不出各類問題的發生率。使用者想回顧常見問題時跑 `runlog.py summary --verbose`。
+
 ## PDF 處理鐵則
 
 法說會簡報是本報告最核心的資料，也是最容易把 token 燒光的地方。**實測：同一頁用 `pdftotext -layout` 是 980 token，轉成 PNG 讀進來是 145,000 token——148 倍。**

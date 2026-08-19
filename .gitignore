@@ -18,5 +18,8 @@ output/
 # Python 快取
 __pycache__/
 
+# AIHOT 精選本地副本（3.4MB，隨時可用 aihot_sync.py 重建）
+.cache/
+
 # 圖檔讀取逃生門（臨時 flag，用完即刪，不該被追蹤）
 .claude/.allow-image-read
