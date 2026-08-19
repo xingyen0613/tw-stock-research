@@ -60,6 +60,27 @@ GET 與帶 preflight 的 POST 都會通（服務端有回 `Access-Control-Allow-
 - 個人筆記的內容；沒寫筆記的話，筆記那一節會自動排除，不會印出空白框
 - caption 是報告的標題
 
+### 個人想法會另外發一則訊息
+
+PDF 要點開才看得到筆記，所以寫了筆記時，服務會在 PDF 之後**再發一則純文字訊息**，
+用 `reply_to_message_id` 掛在那份 PDF 底下，頻道裡直接就能讀到：
+
+```
+📝 個人想法｜<報告標題>
+
+<筆記全文>
+```
+
+規則：
+
+- **取消勾選「個人想法」章節＝不打算分享**：PDF 不印、訊息也不發（兩邊語意一致）
+- 筆記空白或只有空格 → 不發
+- 超過 Telegram 單則 4096 字上限時自動分段，後續段落串成回覆鏈接在前一段下面，順序不會亂
+- 純文字、不設 `parse_mode`，筆記裡的 `*` `_` `[` 不會被當成標記語法
+- 訊息發送失敗**不影響已送出的 PDF**：畫面與 log 會標出 `個人想法訊息失敗：…`，PDF 仍算成功
+- 判斷全在服務端，**舊報告 HTML 不用改也有這個行為**（只是狀態列不會顯示「另發 N 則」）
+- CLI `--send` 模式沒有筆記（筆記存在瀏覽器 localStorage），自然不會發這則訊息
+
 **PDF 會留在 `reports/pdf/`**，檔名與報告 HTML 同名。重發同一份會覆蓋舊的 PDF。
 這個目錄跟 `reports/` 一樣不進 git。
 
@@ -124,3 +145,5 @@ launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.yen.twstock-tg.plist
   （PDF 已寫好，但行程要等到被 kill），加了 incognito 才會正常結束
 - 章節過濾、筆記注入、multipart 上傳格式（含中文 caption 與 PDF bytes 完整性）都驗證過
 - 路徑穿越（`/r/../../.gitignore`）回 404；非 localhost 的 Origin 一律 403
+- 個人想法訊息（2026-08-20 加）：分段還原、回覆鏈順序、四種發／不發的判斷、
+  以及「訊息失敗但 PDF 已送出」都以攔截 API 的方式測過

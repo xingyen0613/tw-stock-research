@@ -51,6 +51,7 @@ CHROME_CANDIDATES = [
 ]
 TG_CAPTION_LIMIT = 1024      # Telegram 對 document caption 的上限
 TG_FILE_LIMIT = 50 * 1024 * 1024   # bot sendDocument 的檔案上限
+TG_TEXT_LIMIT = 4096         # bot sendMessage 的單則文字上限
 
 
 # ── 設定與環境 ────────────────────────────────────────────
@@ -153,8 +154,12 @@ def send_document(token, chat_id, pdf: Path, caption=''):
         data=bytes(body),
         headers={'Content-Type': 'multipart/form-data; boundary=' + boundary},
     )
+    return call_api(req, timeout=180)
+
+
+def call_api(req, timeout=60):
     try:
-        with urllib.request.urlopen(req, timeout=180) as resp:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
             out = json.loads(resp.read().decode('utf-8'))
     except urllib.error.HTTPError as e:
         detail = e.read().decode('utf-8', 'replace')[:400]
@@ -170,19 +175,74 @@ def send_document(token, chat_id, pdf: Path, caption=''):
     return out['result']
 
 
+def split_text(text, limit=TG_TEXT_LIMIT):
+    """把長筆記切成不超過上限的段落：優先在換行處斷，斷不了才硬切。"""
+    chunks, buf = [], ''
+    for line in text.split('\n'):
+        while len(line) > limit:                 # 單行就超長，只能硬切
+            if buf:
+                chunks.append(buf); buf = ''
+            chunks.append(line[:limit]); line = line[limit:]
+        candidate = line if not buf else buf + '\n' + line
+        if len(candidate) > limit:
+            chunks.append(buf); buf = line
+        else:
+            buf = candidate
+    if buf:
+        chunks.append(buf)
+    return chunks or ['']
+
+
+def send_message(token, chat_id, text, reply_to=None):
+    """發純文字訊息；超過 4096 字自動分段，後續段落接在前一段下面。"""
+    results = []
+    for chunk in split_text(text):
+        payload = {'chat_id': chat_id, 'text': chunk,
+                   'disable_web_page_preview': True}
+        if reply_to:
+            payload['reply_to_message_id'] = reply_to
+        req = urllib.request.Request(
+            'https://api.telegram.org/bot%s/sendMessage' % token,
+            data=json.dumps(payload).encode('utf-8'),
+            headers={'Content-Type': 'application/json'},
+        )
+        r = call_api(req)
+        results.append(r)
+        reply_to = r.get('message_id')     # 分段時串成一條回覆鏈，順序不會亂
+    return results
+
+
 # ── 共用流程 ─────────────────────────────────────────────
 
 def convert_and_send(html_path: Path, token, chat_id, note='', off=None, caption=''):
     if not token or not chat_id:
         raise RuntimeError('還沒設定 bot_token / chat_id，請看 %s' % CONFIG_PATH)
+    off = off or []
     stem = re.sub(r'[\\/:*?"<>|]', '_', html_path.stem)
     pdf_dir = html_path.parent / 'pdf'       # reports/pdf/：PDF 留在本機，重發同一份會覆蓋
     pdf_dir.mkdir(parents=True, exist_ok=True)
     pdf = pdf_dir / (stem + '.pdf')
     build_pdf(html_path, pdf, note=note, off=off)
     result = send_document(token, chat_id, pdf, caption=caption)
-    return {'ok': True, 'message_id': result.get('message_id'),
-            'bytes': pdf.stat().st_size, 'pdf': str(pdf)}
+    out = {'ok': True, 'message_id': result.get('message_id'),
+           'bytes': pdf.stat().st_size, 'pdf': str(pdf), 'note_sent': False}
+
+    # 個人想法除了印進 PDF，另外再發一則文字訊息掛在 PDF 底下——PDF 要點開才看得到，
+    # 訊息在頻道裡直接可讀。取消勾選「個人想法」章節＝不打算分享，兩邊都不出現。
+    if note.strip() and 'notes' not in off:
+        header = '📝 個人想法'
+        if caption:
+            header += '｜' + caption
+        try:
+            msgs = send_message(token, chat_id, header + '\n\n' + note.strip(),
+                                reply_to=out['message_id'])
+            out['note_sent'] = True
+            out['note_message_id'] = msgs[0].get('message_id')
+            out['note_parts'] = len(msgs)
+        except RuntimeError as e:
+            # PDF 已經發出去了，不能因為這則訊息失敗就整包回報失敗
+            out['note_error'] = str(e)
+    return out
 
 
 # ── HTTP 服務 ────────────────────────────────────────────
@@ -306,8 +366,15 @@ class Handler(BaseHTTPRequestHandler):
         except Exception as e:
             self.log_line('發送失敗 %s：%s' % (target.name, e))
             return self._json(500, {'ok': False, 'error': str(e)})
-        self.log_line('已發送 %s → %s（%.1fMB）｜PDF：%s'
-                      % (target.name, chat, result['bytes'] / 1048576, result['pdf']))
+        if result.get('note_sent'):
+            note_state = '｜個人想法已另發 %d 則' % result.get('note_parts', 1)
+        elif result.get('note_error'):
+            note_state = '｜個人想法發送失敗：%s' % result['note_error']
+        else:
+            note_state = ''
+        self.log_line('已發送 %s → %s（%.1fMB）%s｜PDF：%s'
+                      % (target.name, chat, result['bytes'] / 1048576,
+                         note_state, result['pdf']))
         return self._json(200, result)
 
     def _index(self):
@@ -444,6 +511,8 @@ def main():
         result = convert_and_send(html, token, chat, caption=html.stem.replace('_', ' '))
         print('已發送到 %s（message_id=%s, %.1fMB）'
               % (chat, result['message_id'], result['bytes'] / 1048576))
+        if result.get('note_error'):
+            print('個人想法訊息發送失敗：%s' % result['note_error'])
         print('PDF 留在 %s' % result['pdf'])
         return
     if not reports_dir.is_dir():

@@ -242,6 +242,10 @@ HTML 模板、配色與 Chart.js 用法，讀 `assets/report-template.html`。
 連同筆記與章節勾選一起帶進去，再用 Bot API `sendDocument` 發到設定好的頻道。
 bot token 存在 `~/.config/tw-stock-tg/config.json`，**永遠不進報告 HTML、不進 repo**。
 
+有寫個人筆記時，服務會**在 PDF 之後再用 `sendMessage` 發一則純文字訊息**（掛在 PDF 底下），
+讓想法在頻道裡不必點開 PDF 就讀得到；取消勾選「個人想法」章節則兩邊都不出現。
+判斷在服務端，舊報告不改也有這行為。
+
 舊報告（沒有按鈕的）用 CLI 發：`python3 …/tg_bridge.py --send reports/xxx.html`。
 
 設定步驟、bot 權限、錯誤訊息對照，讀 `references/telegram-sending.md`。

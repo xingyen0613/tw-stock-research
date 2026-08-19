@@ -488,7 +488,11 @@ new Chart(c4, {data:{labels:QUARTERS, datasets:[
       });
       const d = await r.json().catch(() => ({}));
       if(r.ok && d.ok){
-        setMsg(`已發送到 Telegram · ${(d.bytes/1048576).toFixed(1)} MB · 共 ${boxes.filter(b=>b.checked).length} 個章節 · PDF 留在 reports/pdf/`, 'ok');
+        // 個人想法除了印進 PDF，本機服務還會另外發一則文字訊息掛在 PDF 底下
+        const noteBit = d.note_sent ? ` · 個人想法另發 ${d.note_parts > 1 ? d.note_parts + ' 則' : '1 則'}訊息`
+                      : (d.note_error ? ` · 個人想法訊息失敗：${d.note_error}` : '');
+        setMsg(`已發送到 Telegram · ${(d.bytes/1048576).toFixed(1)} MB · 共 ${boxes.filter(b=>b.checked).length} 個章節${noteBit} · PDF 留在 reports/pdf/`,
+               d.note_error ? 'err' : 'ok');
       }else{
         setMsg('發送失敗：' + (d.error || ('HTTP ' + r.status)), 'err');
       }
