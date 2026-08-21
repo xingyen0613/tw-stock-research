@@ -67,7 +67,7 @@ python3 .claude/skills/us-stock-research/scripts/aihot_query.py {標的} --days 
 ### Phase B — 非官方分析（三個 Sonnet agent 平行）
 
 - **B-1 分析師財測** — 目標價、當年度／次年度 EPS 與營收預估、評等；以及官方不揭露的拆解（segment 毛利率、單一產品 ASP、市占率）
-- **B-2 產業分析** — `{focus}` 相關的產業趨勢與市場規模
+- **B-2 產業分析** — `{focus}` 相關的產業趨勢與市場規模。**必須交出一份產業 CAGR 清單，不是可選項**，規格見下方「產業 CAGR 要求」
 - **B-3 空方與 earnings call Q&A** — **一定要找空方觀點，只有多方的報告是壞報告**。earnings call 的 Q&A 逐字稿只能靠 web search（SEC 與 Polygon 都沒有）
 
 各自落成一個 JSON 檔，回報路徑與摘要。
@@ -98,6 +98,8 @@ python3 .claude/skills/us-stock-research/scripts/aihot_query.py {標的} --days 
 ```
 
 `segment` 為公司整體時填 `"company"`。`is_estimate: true` 代表預測值。
+
+**產業 CAGR 也要進 `datapoints`**，不要只留在 B-2 的 JSON 裡：`metric: "cagr"`、`period` 填期間（`"2025-2030"`）、`unit: "%"`、`segment` 填市場範圍（`"AI accelerator"`）、`is_estimate: true`、`note` 記層級與該期間的起訖市場規模。合併腳本要一併處理，漏掉的話驗證 agent 看不到這些數字。
 
 **此處執行線索回溯**：`events.json` 每則事件拿專有名詞去 grep A-1 落地的 8-K `.txt`——
 - 對得到 → `tier` 升級 `L3` → `L1`，`source_url` 換成 SEC 連結，寫進報告正文
@@ -140,6 +142,23 @@ python3 .claude/skills/us-stock-research/scripts/runlog.py add \
 ```
 
 `issue.type` 只能是 `source_missing`／`api_not_entitled`／`parse_failed`／`rate_limited`／`data_conflict`／`token_spike`／`other`。**這次沒卡住就傳空陣列**，不要不記。使用者想看常見問題時跑 `runlog.py summary --verbose`。
+
+## 產業 CAGR 要求（B-2 的硬性交付）
+
+使用者要的是看懂「這家公司所處的每一段產業環節長多快」，所以不要只給一個籠統的總市場數字，能拆多細就拆多細，至少涵蓋三個層級中的兩個：
+
+| 層級 | 例子 |
+|---|---|
+| 全產業／終端市場 | global data center capex、AI accelerator TAM、optical transceiver market |
+| 次市場／應用別 | training vs inference accelerator、800G/1.6T transceiver、hyperscaler vs enterprise |
+| 產品／元件／材料 | HBM、CoWoS capacity、DSP、EML laser、liquid cooling CDU |
+
+每一筆 CAGR 都要帶齊：**範圍定義／起訖年份／CAGR%／該期間的起點與終點市場規模／研調機構／發布日期／來源連結**。「年增 30%」不是 CAGR，缺起訖年份的數字不要收。
+
+- **禁止自己拿兩個年份的市場規模回推 CAGR 再當成研調機構的數字。** 真的只有兩端數據時可以自算，但要標明「本報告自算」並附上代入值
+- 同一市場多家機構（Gartner、IDC、Dell'Oro、LightCounting、Yole、650 Group、TrendForce…）常差很多，**全部並列**，並說明分歧來自什麼定義差異（含不含服務、產值 vs 出貨量、TAM vs SAM）
+- **TAM／SAM／SOM 要分清楚**，不同口徑的數字不可放在同一句話裡比較
+- 幣別一律標明（多數為 USD B／USD M），受「資料新鮮度上限」約束
 
 ## SEC 處理鐵則
 
