@@ -49,6 +49,22 @@ python3 .claude/skills/us-stock-research/scripts/fetch_sec.py {標的} --out out
 
 **A-2 量化財務（Haiku）** — Polygon MCP，見下方「Polygon 鐵則」。落成 `financials.json`。財務比率用原始科目自己算，不要另外搜尋。
 
+同一個 agent 再備一份圖 5（本益比河流圖）的資料：月線 aggregates 取 `vw` 當月均價、
+逐季 GAAP diluted EPS 取 `filing_date` 當換檔日、**Q4 用年報減前三季補上**，
+湊成 `pe_raw.json` 後跑
+
+```bash
+python3 .claude/skills/tw-stock-research/scripts/fetch_pe_band.py \
+  --from-json output/{標的}_{日期}/pe_raw.json --years 2 \
+  --out output/{標的}_{日期}/pe_band.json
+```
+
+完整步驟、欄位名、分頁與 Q4 補值的算法寫在 `references/report-structure.md` 的
+「圖 5 本益比河流圖」一節，**派工時要把那一節原文帶進 prompt**——subagent 讀不到這份 SKILL.md。
+
+**交付前自我對帳**：最新一個月的近四季 EPS，要等於最近一份 10-K 的全年 EPS，
+或最近四季（含補出來的 Q4）相加。對不上就是 Q4 漏補或分頁沒抓齊，不要交。
+
 **A-3 segment 拆解（Sonnet）** — 讀 A-1 落地的 `.txt`，抽出各 segment 營收與占比、公司財測、管理層關鍵發言，落成 `segments.json`。
 
 **優先序：EX-99.2（CFO Commentary）> EX-99.1（財報新聞稿）> 10-Q 的 segment note。** EX-99.2 通常已經把 QoQ／YoY 算好，而且有子拆解。

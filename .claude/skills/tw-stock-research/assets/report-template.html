@@ -67,6 +67,7 @@ td.num,th.num{font-family:var(--mono);text-align:right}
 figure{margin:28px 0;background:var(--card);border:1px solid var(--rule);border-radius:4px;padding:20px}
 figure .cap{font-family:var(--mono);font-size:11px;color:var(--ink-soft);margin-top:14px;line-height:1.6}
 .chartbox{position:relative;height:340px}
+.chartbox.tall{height:400px}   /* 圖 5 本益比河流圖，資料點多 */
 
 /* ── 未驗證區塊 ─────────────────────── */
 .unverified{border:1px dashed var(--alert);border-left:4px solid var(--alert);
@@ -81,7 +82,7 @@ figure .cap{font-family:var(--mono);font-size:11px;color:var(--ink-soft);margin-
 
 /* ── 多空對照 ───────────────────────── */
 .debate{display:grid;grid-template-columns:1fr 1fr;gap:14px}
-@media(max-width:720px){.debate{grid-template-columns:1fr}.chartbox{height:280px}}
+@media(max-width:720px){.debate{grid-template-columns:1fr}.chartbox{height:280px}.chartbox.tall{height:320px}}
 
 .note{font-size:13px;color:var(--ink-soft);border-left:2px solid var(--rule);padding-left:14px}
 footer{margin-top:72px;padding-top:24px;border-top:1px solid var(--rule);
@@ -135,6 +136,7 @@ a{color:inherit}
   .part{break-before:page;margin-top:0}
   figure,table,.qa,.unverified,.card{break-inside:avoid}
   .chartbox{height:250px}
+  .chartbox.tall{height:300px}
   .scroll{overflow:visible}
   a{text-decoration:none}
   #notes textarea{border:1px solid var(--rule);min-height:0;
@@ -201,6 +203,14 @@ a{color:inherit}
   <figure>
     <div class="chartbox"><canvas id="c4"></canvas></div>
     <div class="cap">圖 4 · 單季營收與 EPS｜{{業外因素扭曲的季度在此註明}}</div>
+  </figure>
+  <figure>
+    <div class="chartbox tall"><canvas id="c5"></canvas></div>
+    <div class="cap">圖 5 · 本益比河流圖（近 {{年數}} 年）｜色帶＝各本益比區間對應的股價範圍，
+      上下緣＝倍數 × 當月近四季 EPS 總和｜紅線＝月均價（新台幣元）｜
+      本益比＝月均價 ÷ 近四季 EPS，近四季 EPS 於財報公布日換檔｜
+      現值 {{PE}} 倍，近 {{年數}} 年區間 {{PEmin}}–{{PEmax}} 倍、中位 {{PEmed}} 倍｜
+      來源：{{}}｜等級 L1</div>
   </figure>
 </section>
 
@@ -354,6 +364,48 @@ new Chart(c4, {data:{labels:QUARTERS, datasets:[
   scales:{x:{grid:{display:false}}, y:{position:'left'},
           y1:{position:'right',grid:{display:false}}},
   plugins:{legend:{position:'bottom'}}}});
+
+// 圖 5 — 本益比河流圖（資料由 scripts/fetch_pe_band.py 產出的 pe_band.json 帶入）
+// 色帶是 ordinal（有序）資料，不是類別資料，所以**不用 SEG 色盤**，用單一藍色 ramp
+// 由淺到深代表倍數由低到高。這 5 階是白底 ordinal 驗證唯一過關的組合，
+// 也因此區間層數上限就是 5 —— 不要自己補第 6 個顏色，要更多層請把級距調大。
+const PE_RAMP = ['#86b6ef','#5598e7','#2a78d6','#1c5cab','#104281'];
+const PB = {{pe_band.json 的內容}};
+if (PB && !PB.skip_reason) {
+  // 由低到高疊，每一層填到前一層（fill:'-1'）；最底層是 band_floor，只當填充基準不畫線
+  const ds = [{label:'__floor', data:PB.band_floor, borderWidth:0, pointRadius:0,
+               fill:false, order:9}];
+  PB.bands.forEach((b,i)=>ds.push({label:b.label, data:b.upper, backgroundColor:PE_RAMP[i],
+    borderColor:SURFACE, borderWidth:1, pointRadius:0, fill:'-1', tension:0, order:9}));
+  // 白色襯線壓在股價線底下，紅線橫越深色帶時才不會糊掉（2px surface ring）
+  ds.push({label:'__halo', data:PB.price, borderColor:SURFACE, borderWidth:5,
+           pointRadius:0, fill:false, tension:0, order:1});
+  ds.push({label:'月均價(元)', data:PB.price, borderColor:SEG[7], borderWidth:2.5,
+           pointRadius:0, pointHoverRadius:5, pointBackgroundColor:SURFACE,
+           pointBorderWidth:2, fill:false, tension:0, order:0});
+  // order 小的畫在上層（Chart.js 反向遍歷 sorted metasets）。不設 order 的話
+  // 色帶會蓋掉股價線，只剩超出河流範圍的那幾段看得到——這個坑踩過一次。
+  new Chart(c5, {type:'line', data:{labels:PB.labels, datasets:ds},
+    options:{maintainAspectRatio:false, spanGaps:false,
+      interaction:{mode:'index', intersect:false},
+      layout:{padding:{right:10}},   // 不留這個空隙，最右邊那個 X 軸標籤會被切掉
+      scales:{x:{grid:{display:false},
+                 // 長序列（台股 5 年＝60 點）只標年份；短序列（美股 2 年）標到月份
+                 ticks:{maxRotation:0, autoSkip:false,
+                        callback:function(v){const l=this.getLabelForValue(v);
+                          if (PB.labels.length > 30) return l.endsWith('-01') ? l.slice(0,4) : '';
+                          return (l.endsWith('-01') || l.endsWith('-07')) ? l : '';}}},
+              y:{title:{display:true, text:'股價（元）'},
+                 ticks:{callback:v=>v.toLocaleString()}}},
+      plugins:{legend:{position:'bottom', labels:{filter:i=>!i.text.startsWith('__')}},
+        tooltip:{filter:i=>i.dataset.label==='月均價(元)',
+          callbacks:{label:c=>`月均價：${c.parsed.y} 元`,
+            afterBody:c=>{const i=c[0].dataIndex;
+              return [`近四季 EPS：${PB.ttm_eps[i] ?? '—'} 元`,
+                      `本益比：${PB.pe[i] ? PB.pe[i]+' 倍' : '—'}`];}}}}}});
+}
+// PB.skip_reason 有值時整個 <figure> 不要放進報告，改在該處寫一行說明理由
+// （近四季 EPS 長期為負、或本益比區間跨度過大，河流圖沒有參考價值）。
 
 // 缺資料的季度填 null，Chart.js 會自動留空。禁止內插補值。
 </script>

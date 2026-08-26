@@ -32,6 +32,70 @@
 | 圖 1、圖 2（segment 占比／金額） | segment 改版時**分成兩組圖**或在改版點加分隔線與註記，不可讓兩套分類共用一條時間軸 |
 | 圖 3（獲利能力趨勢） | 毛利率／營益率／淨利率**同時畫 GAAP 與 non-GAAP 兩組線**，用實線／虛線區分，圖例標清楚 |
 | 圖 4（營收與 EPS） | EPS 標明口徑；營收單位用**百萬美元（USD M）**，並在軸標題註明 |
+| 圖 5（本益比河流圖） | 期間**只有 2 年**，EPS 用 **GAAP diluted**，Y 軸與色帶單位為 **USD**。詳見下節 |
+
+## 圖 5 本益比河流圖：美股的資料怎麼取
+
+計算與畫法完全沿用台股版（`scripts/fetch_pe_band.py`），差別只在資料從哪來。台股那支腳本會自己去 FinMind 抓，美股沒有等價的免費 API，**要先用 Polygon MCP 把資料湊成一份 `raw.json`，再餵給腳本的 `--from-json` 模式**：
+
+```json
+{"meta":{"ticker":"FN","name":"Fabrinet","currency":"USD","unit":"USD"},
+ "prices":[{"date":"2026-08-01","close":501.06}, ...],
+ "eps":[{"period":"FY2026Q3","eps":3.45,"effective_from":"2026-05-05"}, ...]}
+```
+
+```bash
+python3 .claude/skills/tw-stock-research/scripts/fetch_pe_band.py \
+  --from-json output/{標的}_{日期}/pe_raw.json --years 2 \
+  --out output/{標的}_{日期}/pe_band.json
+```
+
+### 股價：月線 aggregates，只回溯 2 年
+
+```
+/v2/aggs/ticker/{T}/range/1/month/{起}/{迄}   params: adjusted=true
+```
+
+`close` 欄位填 **`vw`（成交量加權均價）**，那才是「月均價」；`c` 是月收盤，會被最後一天的跳動帶偏。
+
+兩個實測到的限制：
+
+1. **超過約 2 年就 `NOT_ENTITLED`。** 2026-08 實測 FN：2024-08 以後拿得到，2023-01～2024-08 直接回 NOT_ENTITLED。所以美股版一律 `--years 2`，並在 caption 寫明「受行情資料權限限制，區間僅涵蓋 24 個月」。日後權限升級再把年數調大即可，腳本不用改。
+2. **每頁只回 5 筆**，`limit` 給多少都一樣。24 個月要跟著 `cursor` 分頁 5 次。回應會給下一頁的完整 path 與 cursor，照著呼叫就好。
+
+### EPS：quarterly 沒有 Q4，要自己補
+
+```
+/vX/reference/financials   params: ticker, timeframe=quarterly, limit=12, order=desc, sort=filing_date
+/vX/reference/financials   params: ticker, timeframe=annual,    limit=3,  order=desc, sort=filing_date
+```
+
+取 `financials_income_statement_diluted_earnings_per_share_value`（**GAAP diluted**）與 `filing_date`。
+
+**`timeframe=quarterly` 只回 Q1–Q3。** 第四季的數字只存在於 10-K，所以：
+
+```
+Q4 EPS = 該會計年度 annual EPS − (Q1 + Q2 + Q3)
+Q4 的 effective_from = 10-K 的 filing_date
+```
+
+實測 FN：FY2026 全年 13.05，Q1–Q3 為 2.66／3.11／3.45（合計 9.22）→ Q4 = 3.83，`effective_from` 用 10-K 的 2026-08-18。漏掉這一步，近四季 EPS 會少一季，本益比整條線偏高。
+
+註兩件事：
+
+- 四季 diluted EPS 相加與全年 diluted EPS 有微幅差異（各季加權股數不同），這是市場慣例算法，與台灣證交所一致，不必修正
+- Q4 業績其實在財報 8-K 就公布了，10-K 通常晚幾天。月粒度下同屬一個月，影響可以忽略；真的踩到月底邊界時，改用該季 8-K 的日期
+
+### 換檔日與月粒度
+
+腳本用**當月最後一天**去比對 `effective_from`，不是 `prices` 裡的日期——月線 aggregate 的日期是月初（`2026-08-01`），拿它去比會把當月才公布的那一季整個漏掉。這個坑實測踩過：FN 2026-08 的本益比會從正確的 38.4 變成 43.08。
+
+### Polygon 回傳體積的坑
+
+`/vX/reference/financials` **即使加了 `store_as` 也會回一份 preview**，含完整欄位名清單（200+ 欄）加前 5 列，單次約 20K token。所以：
+
+- `limit` 壓到真正需要的筆數（quarterly 12、annual 3 就夠算 2 年的近四季 EPS）
+- 存進 workspace 後用 `query_data` 只 SELECT 需要的四個欄位，不要再呼叫一次 API
 
 ## 單位與格式
 

@@ -42,6 +42,25 @@ curl -s 'https://mops.twse.com.tw/mops/api/t100sb02_1' \
 
 **拿到 PDF 一律先 `pdftotext -layout`**，細節見 SKILL.md 的「PDF 處理鐵則」。實測法說會簡報的業務別營收占比表用 `-layout` 能完整保留欄位對齊（各業務別、各年度占比、市場趨勢、下年度展望全在），單頁 980 token；同一頁轉成 PNG 讀進 context 是 145,000 token。
 
+### 本益比河流圖（圖 5）→ FinMind API
+
+```bash
+python3 .claude/skills/tw-stock-research/scripts/fetch_pe_band.py {代號} --years 5 --out pe_band.json
+```
+
+自己去抓 `TaiwanStockPrice`、`TaiwanStockFinancialStatements`、`TaiwanStockPER`，算出月均價、
+近四季 EPS、本益比與各區間色帶。輸出約 5KB。已驗證的事實（2026-08 實測 7 檔）：
+
+- **`TaiwanStockPER` 是證交所每日公布的官方本益比**（上市、上櫃都有，回溯 5 年以上）。
+  它的分母就是「最近四季 EPS 總和」——實測台達電 2026-08-25 收盤 1710 ÷ 31.42 = 54.42，
+  與證交所公布值一字不差。腳本用它反推**市場當下採用的 EPS 口徑**，據此定出每一季的換檔日
+- **換檔日是各公司財報實際公布日，不是法定申報期限**。實測台達電 2026Q2 在 07-29 換、
+  嘉澤在 08-14 換，差 16 天。用法定期限（5/15、8/14、11/14、3/31）一律猜，
+  會讓換檔前幾週的本益比全部算錯
+- **`PER` 欄位為 0 代表當時近四季 EPS 為負**，不是缺值。虧損期間拿不到換檔日，
+  腳本會退回法定期限推算
+- 覆蓋率不足或本益比跨度過大時腳本會給 `skip_reason`，那時**這張圖就不要畫**
+
 ### 股價、法人買賣超、融資券
 
 同樣走 FinMind（`TaiwanStockPrice`、`TaiwanStockPER`、`TaiwanStockInstitutionalInvestorsBuySell`、`TaiwanStockMarginPurchaseShortSale`），用法見 `~/.claude/commands/finmind.md`。

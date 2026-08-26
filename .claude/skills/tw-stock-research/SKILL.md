@@ -56,6 +56,17 @@ Phase A、B 全部派 subagent 執行，主對話不自己下場查資料。派�
 
 **A-2 量化財務（Haiku）** — 走 FinMind API 抓：逐季損益（營收、毛利、營益、淨利、EPS）、資產負債、現金流、月營收、PER。財務比率（流動比、速動比、負債比、ROE、每股淨值）用抓到的原始科目自己算，不要另外去搜尋。落成 `financials.json`。做法見 `references/sources.md` 的 FinMind 段。
 
+同一個 agent 再跑一支腳本產出圖 5（本益比河流圖）的資料：
+
+```bash
+python3 .claude/skills/tw-stock-research/scripts/fetch_pe_band.py {代號} --years 5 \
+  --out output/{代號}_{日期}/pe_band.json
+```
+
+它自己會去 FinMind 抓股價、財報 EPS 與證交所每日本益比，算出月均價、近四季 EPS、
+本益比與各區間色帶。**回報時把終端輸出的那幾行摘要原樣貼回來**（區間、級距、層數、
+本益比現值與中位數，或 `skip_reason`），主對話要靠它決定 caption 怎麼寫、這張圖畫不畫。
+
 **A-3 業務別拆解（Sonnet）** — 讀 A-1 產出的 `.txt`，抽出各業務／產品別營收占比、公司財測、關鍵發言，落成 `segments.json`。跨季分類定義若有變動，在 `note` 記下原始分類名稱。
 
 法說會 Q&A 屬於 Phase B（簡報 PDF 幾乎不含 Q&A，只能從逐字稿、影音摘要或現場報導取得，是 L2/L3）。
@@ -144,12 +155,15 @@ Phase A、B 全部派 subagent 執行，主對話不自己下場查資料。派�
 **不要用瀏覽器工具開來截圖確認。** 一張截圖約 35K token，而使用者從 SendUserFile 看到的畫面完全一樣。要自查渲染有沒有壞，用 `grep` 確認這四件事就夠：
 
 ```bash
-grep -c "new Chart" report.html          # 應為 4
+grep -c "new Chart" report.html          # 應為 5（pe_band 有 skip_reason 時為 4）
 grep -o 'id="c[0-9]"' report.html        # canvas id 齊全
 grep -c "{{" report.html                 # 應為 0，佔位符全部替換完
 grep -o 'data-report="[^"]*"' report.html # 應為實際的 代號-日期，不是 {{}}
-grep -c "<figure>" report.html           # 應為 4，跟 new Chart 數量一致
+grep -c "<figure>" report.html           # 要跟 new Chart 數量一致
+grep -c "PE_RAMP\|SEG\[" report.html    # 圖 5 用 PE_RAMP，不要把 SEG 套到色帶上
 ```
+
+圖 5 的資料量比別張大（60 個月 × 6 條序列，約 5KB JSON）。**內嵌 `pe_band.json` 的內容時整份貼進 `const PB = ...`，不要自己重打數字。**
 
 最後一項最容易漏：`data-report` 是個人筆記存在瀏覽器裡的 key，沒填的話不同報告的筆記會互相覆蓋。
 
