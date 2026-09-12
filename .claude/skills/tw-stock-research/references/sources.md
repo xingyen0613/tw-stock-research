@@ -28,19 +28,37 @@ python3 .claude/skills/tw-stock-research/scripts/fetch_financials.py {代號} --
 - **損益表與現金流是單季值，不是累計值**，不需要還原。資產負債表是期末餘額。
 - 資料源是公開資訊觀測站財報。標 L1 時要在 MOPS 對得上；對不上就標 L2。腳本輸出的 `meta.mops_url` 是該公司財報查詢頁，可直接當引用連結。
 
-### 法說會簡報 → MOPS API + pdftotext
+### 法說會簡報 → MOPS 查清單(瀏覽器) + curl 抓檔
 
-法人說明會一覽表走 MOPS 的 API，不要用瀏覽器點：
+**2026-09-12 實測更新**：舊版寫「查清單走 API、不要用瀏覽器」已經過時。MOPS 前端改版後，`t100sb02_1` 這類查詢 API 會被 WAF 擋下（純 curl 回「因為安全性考量」錯誤頁；加上瀏覽器常見的 User-Agent/Referer/Origin header 能過 WAF 第一層，但端點仍要求 SPA 載入後才有的 session 狀態，最終還是 404）。目前**查「有哪些場次」這一步只能用瀏覽器工具**：
+
+1. 開 `https://mops.twse.com.tw/mops/#/web/t100sb02_1`，填公司代號與民國年、點查詢
+2. 用 `read_network_requests` 找 `POST /mops/api/redirectToOld` 這筆請求，其回應 body 是 `{"result":{"url":"https://mopsov.twse.com.tw/mops/web/ajax_t100sb02_1?parameters=..."}}`
+3. `navigate` 到這個帶簽名參數的網址，`get_page_text` 就能拿到完整結果表格（含每場日期、地點、簡報檔名）
+
+**一次查完該公司過去兩個民國年度的完整清單，不要只查最近一年或假設「一季一場」。** 高力(8996) 2025-2026 兩年實際開了 15 場券商投資人論壇（同一季可能 2-3 場），A-1 若只查一年範圍或半途停止分頁，容易只抓到 4-5 場就以為抓完——實際上要把完整清單抓回來，依日期排序取最新 4 場，而不是抓到幾場算幾場。
+
+**檔案下載本身仍是純 API，維持原做法**：簡報 PDF 網址格式 `https://mopsov.twse.com.tw/nas/STR/{代號}{西元日期}M{序號}.pdf`（少數是 `.pptx`），拿到查詢結果表格裡的確切檔名後，直接 `curl` 下載即可，不需要瀏覽器。
+
+**拿到 PDF 一律先 `pdftotext -layout`**，細節見 SKILL.md 的「PDF 處理鐵則」。實測法說會簡報的業務別營收占比表用 `-layout` 能完整保留欄位對齊（各業務別、各年度占比、市場趨勢、下年度展望全在），單頁 980 token；同一頁轉成 PNG 讀進 context 是 145,000 token。若拿到的是 `.pptx`（偶爾發生），不要轉圖，直接 `unzip` 解壓後對 `ppt/slides/slide*.xml` 跑正則 `<a:t>(.*?)</a:t>` 抓文字節點即可，同樣是純文字操作，不需要 LibreOffice 或任何轉檔工具。
+
+### 業務別營收拆解 → 財報附注「部門資訊」（比法說會簡報更權威）
+
+**2026-09-12 新增**：法說會簡報幾乎不會有業務別營收金額或占比（實測高力 5 場簡報全部沒有），但這不代表公司完全沒有官方拆解——**合併財務報告附注「部門資訊」（IFRS 8 規定揭露）才是真正權威的來源**，FinMind 的財務資料只含損益表科目、不含附注，法說會簡報也不含，所以 A-1／A-2 兩邊都碰不到，必須另外查。
+
+做法：MOPS 查「財務報告書」（`t57sb01_q1`），取得該公司最新年報與最新一季合併財報 PDF 的檔名，用 `doc.twse.com.tw` 兩段式下載（純 curl，不需要瀏覽器）：
 
 ```bash
-curl -s 'https://mops.twse.com.tw/mops/api/t100sb02_1' \
-  -H 'Content-Type: application/json' \
-  -d '{"companyId":"{代號}","yearRange":"{民國年}"}'
+# 第一步：POST 表單取得帶時間戳記的實際檔案網址
+curl -sL -d "step=9&kind=A&co_id={代號}&filename={檔名}.pdf" \
+  "https://doc.twse.com.tw/server-java/t57sb01" > resp.html
+# resp.html 內文會有一行 <a href='/pdf/{檔名}_{時間戳}.pdf'>
+url=$(grep -oE "/pdf/[^']+\.pdf" resp.html | head -1)
+# 第二步：直接抓檔
+curl -sL -o out.pdf "https://doc.twse.com.tw${url}"
 ```
 
-簡報 PDF 網址格式：`https://mopsov.twse.com.tw/nas/STR/{代號}{西元日期}M{序號}.pdf`
-
-**拿到 PDF 一律先 `pdftotext -layout`**，細節見 SKILL.md 的「PDF 處理鐵則」。實測法說會簡報的業務別營收占比表用 `-layout` 能完整保留欄位對齊（各業務別、各年度占比、市場趨勢、下年度展望全在），單頁 980 token；同一頁轉成 PNG 讀進 context 是 145,000 token。
+`filename` 從財報書查詢頁的表格取得（例如 `202504_8996_AI1.pdf` 代表 114 年第 4 季／全年合併財報）。拿到 PDF 後 `pdftotext -layout`，`grep -n "部門資訊\|部門別"` 定位附注段落——年報與每季合併財報通常都有這個附注（IAS 34 期中報告的簡化揭露規定下，部分公司可能只在年報揭露，實測高力是季季都有）。附注內容包含：各部門營收、部門損益（部門利益率）、可辨認資產負債、地區別營收、主要客戶集中度（依 10% 門檻匿名揭露）。**這組數字才是本報告「業務別營收拆解」章節該優先採用的來源，投資人簡報的質性業務分類只能當輔助説明。**
 
 ### 本益比河流圖（圖 5）→ FinMind API
 
