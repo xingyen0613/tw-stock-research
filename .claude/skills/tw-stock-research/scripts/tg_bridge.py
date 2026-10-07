@@ -214,14 +214,29 @@ def send_message(token, chat_id, text, reply_to=None):
 
 # ── 共用流程 ─────────────────────────────────────────────
 
+def report_pdf_path(html_path: Path) -> Path:
+    """PDF 固定放在 reports/pdf/<同名>.pdf，重轉同一份會覆蓋。"""
+    stem = re.sub(r'[\\/:*?"<>|]', '_', html_path.stem)
+    pdf_dir = html_path.parent / 'pdf'
+    pdf_dir.mkdir(parents=True, exist_ok=True)
+    return pdf_dir / (stem + '.pdf')
+
+
+def convert_only(html_path: Path, note='', off=None):
+    """只轉 PDF 存進 reports/pdf/，不發 Telegram——報告頁的「匯出 PDF」走這條。
+
+    瀏覽器自己的列印視窗沒辦法指定存檔位置（一律進下載資料夾），所以改由本機服務轉檔。
+    """
+    pdf = report_pdf_path(html_path)
+    build_pdf(html_path, pdf, note=note, off=off or [])
+    return {'ok': True, 'pdf': str(pdf), 'bytes': pdf.stat().st_size}
+
+
 def convert_and_send(html_path: Path, token, chat_id, note='', off=None, caption=''):
     if not token or not chat_id:
         raise RuntimeError('還沒設定 bot_token / chat_id，請看 %s' % CONFIG_PATH)
     off = off or []
-    stem = re.sub(r'[\\/:*?"<>|]', '_', html_path.stem)
-    pdf_dir = html_path.parent / 'pdf'       # reports/pdf/：PDF 留在本機，重發同一份會覆蓋
-    pdf_dir.mkdir(parents=True, exist_ok=True)
-    pdf = pdf_dir / (stem + '.pdf')
+    pdf = report_pdf_path(html_path)
     build_pdf(html_path, pdf, note=note, off=off)
     result = send_document(token, chat_id, pdf, caption=caption)
     out = {'ok': True, 'message_id': result.get('message_id'),
@@ -339,7 +354,8 @@ class Handler(BaseHTTPRequestHandler):
         return self._bytes(404, b'not found', 'text/plain')
 
     def do_POST(self):
-        if urllib.parse.urlsplit(self.path).path != '/api/send':
+        path = urllib.parse.urlsplit(self.path).path
+        if path not in ('/api/send', '/api/pdf'):
             return self._json(404, {'ok': False, 'error': 'unknown endpoint'})
         if not self._origin_ok():
             return self._json(403, {'ok': False,
@@ -355,12 +371,22 @@ class Handler(BaseHTTPRequestHandler):
             return self._json(400, {'ok': False,
                                     'error': '找不到報告檔 %r（只能發 reports 目錄裡的 .html）'
                                              % req.get('file')})
+        note = str(req.get('note') or '')
+        off = [str(x) for x in (req.get('off') or [])]
+        if path == '/api/pdf':            # 只轉檔存進 reports/pdf/，不碰 Telegram
+            try:
+                result = convert_only(target, note=note, off=off)
+            except Exception as e:
+                self.log_line('轉檔失敗 %s：%s' % (target.name, e))
+                return self._json(500, {'ok': False, 'error': str(e)})
+            self.log_line('已轉檔 %s（%.1fMB）→ %s'
+                          % (target.name, result['bytes'] / 1048576, result['pdf']))
+            return self._json(200, result)
+
         token, chat = load_config()
         try:
             result = convert_and_send(
-                target, token, chat,
-                note=str(req.get('note') or ''),
-                off=[str(x) for x in (req.get('off') or [])],
+                target, token, chat, note=note, off=off,
                 caption=str(req.get('caption') or ''),
             )
         except Exception as e:

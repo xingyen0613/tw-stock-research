@@ -95,6 +95,8 @@ a{color:inherit}
   font-size:15px;line-height:1.8;resize:none;overflow:hidden}
 #notes textarea:focus{outline:2px solid var(--l1);outline-offset:-1px}
 #notes textarea::placeholder{color:var(--ink-soft);opacity:.7}
+/* 列印用的筆記鏡射層：screen 隱藏，print 時取代 textarea（見 @media print） */
+.note-print{display:none;white-space:pre-wrap;overflow-wrap:anywhere}
 .notes-bar{display:flex;justify-content:space-between;align-items:center;
   font-family:var(--mono);font-size:11px;color:var(--ink-soft);margin-top:8px}
 .notes-bar button{font-family:var(--mono);font-size:11px;color:var(--alert);
@@ -132,15 +134,27 @@ a{color:inherit}
   body{background:#fff;font-size:11.5pt;line-height:1.6}
   .wrap{max-width:none;padding:0}
   header{padding-top:0}
-  section{margin-top:26px;break-inside:avoid}
-  .part{break-before:page;margin-top:0}
+  /* section 整段 break-inside:avoid 會把「比一頁還高」的章節硬推到下一頁，前一頁留下
+     半頁到整頁空白（BE 報告 27 頁裡有 8 頁）。章節本身放行跨頁，只保護不該被切開的小區塊。 */
+  section{margin-top:26px}
+  .part{break-before:page;margin-top:0;break-after:avoid}
+  .eyebrow,h2,h3{break-after:avoid}
+  h2,h3{break-inside:avoid}
   figure,table,.qa,.unverified,.card{break-inside:avoid}
-  .chartbox{height:250px}
-  .chartbox.tall{height:300px}
+  /* 兩欄對照一旦跨頁，下一頁會變成「左欄整片空白、只剩右欄」，列印改單欄由上往下排 */
+  .debate{grid-template-columns:1fr}
+  p,li{orphans:2;widows:2}
+  /* 列印時把 .chartbox 改矮，Chart.js 的 canvas 不會跟著縮（它的 inline style 還是螢幕
+     尺寸，而列印的排版不會等 Chart.js 的 resize 跑完），canvas 就溢出容器、整張圖壓在
+     圖說上。改成讓 canvas 依自身比例縮放、容器高度跟著 canvas 走。 */
+  .chartbox,.chartbox.tall{height:auto}
+  .chartbox canvas{position:static!important;width:100%!important;height:auto!important;
+    max-width:100%!important;max-height:none!important}
   .scroll{overflow:visible}
   a{text-decoration:none}
   #notes textarea{border:1px solid var(--rule);min-height:0;
     background:#fff;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+  .notes-bar{display:none}          /* 「已儲存 N 字／清空筆記」是螢幕上的操作列，不進 PDF */
   .cards{grid-template-columns:repeat(auto-fit,minmax(120px,1fr))}
 }
 </style>
@@ -273,6 +287,7 @@ a{color:inherit}
 <section id="notes">
   <div class="eyebrow">14</div><h2>個人筆記</h2>
   <textarea id="noteBox" placeholder="在這裡寫下自己的判讀、待追蹤事項、與報告不同的看法⋯⋯內容自動儲存在這台電腦的瀏覽器裡，匯出 PDF 時會一起帶出去。"></textarea>
+  <div class="note-print" id="notePrint" aria-hidden="true"></div>
   <div class="notes-bar">
     <span id="noteStatus">尚未輸入</span>
     <button type="button" id="noteClear">清空筆記</button>
@@ -433,8 +448,25 @@ if (PB && !PB.skip_reason) {
   /* ── 筆記 ── */
   const box = document.getElementById('noteBox');
   const status = document.getElementById('noteStatus');
-  const grow = () => { box.style.height='auto'; box.style.height=box.scrollHeight+'px'; };
+  // 自動長高：內容變多時「只加高」，不把 height 歸零重量。歸零會讓 textarea 瞬間縮回
+  // min-height，瀏覽器為了讓游標可見而捲動整頁、並把 textarea 內部捲掉（overflow:hidden
+  // 看不見捲軸），就是打字到下半部按 Enter 畫面會跳走、又找不到游標的原因。
+  // 只有內容可能變少時才歸零重量，並在前後鎖住頁面捲動位置。
+  const grow = () => {
+    const bd = box.offsetHeight - box.clientHeight;      // 上下 border（box-sizing:border-box）
+    if(box.scrollHeight > box.clientHeight){
+      box.style.height = (box.scrollHeight + bd) + 'px';
+    }else{
+      const y = window.scrollY;
+      box.style.height = 'auto';
+      box.style.height = (box.scrollHeight + bd) + 'px';
+      if(window.scrollY !== y) window.scrollTo(0, y);
+    }
+    box.scrollTop = 0;                                   // 保險：內部捲動一律歸零
+  };
+  const mirror = document.getElementById('notePrint');
   const stamp = () => {
+    mirror.textContent = box.value;          // 同步列印用的鏡射層
     const n = box.value.trim().length;
     status.textContent = n ? `已儲存 ${n} 字 · ${new Date().toLocaleString('zh-TW',{month:'numeric',day:'numeric',hour:'2-digit',minute:'2-digit'})}` : '尚未輸入';
   };
@@ -509,11 +541,33 @@ if (PB && !PB.skip_reason) {
   document.getElementById('selReset').addEventListener('click', () => { boxes.forEach(b=>b.checked=true); store.del(K_SEC); apply(false); });
 
   /* ── 匯出 ── */
-  document.getElementById('doPrint').addEventListener('click', () => {
-    if(!boxes.some(b => b.checked)){ alert('至少要勾選一個章節才能匯出。'); return; }
+  /* 匯出 PDF：交給本機服務轉檔，直接存進 reports/pdf/。瀏覽器自己的列印視窗沒辦法指定
+     存檔位置（一律進下載資料夾），所以只在服務叫不動時才退回它。 */
+  const printBtn = document.getElementById('doPrint');
+  printBtn.addEventListener('click', async () => {
+    if(!boxes.some(b => b.checked)){ setMsg('至少要勾選一個章節才能匯出。', 'err'); return; }
     store.set(K_NOTE, box.value); stamp();
-    grow();                                   // 確保筆記在列印時完整展開，不留捲軸
-    setTimeout(() => window.print(), 60);     // 等 reflow 完成再開列印視窗
+    const off = boxes.filter(b => !b.checked).map(b => b.dataset.t);
+    if(!box.value.trim() && !off.includes('notes')) off.push('notes');  // 沒寫筆記就不要印出空白框
+    const file = decodeURIComponent((location.pathname.split('/').pop() || ''));
+    printBtn.disabled = true;
+    setMsg('正在轉 PDF⋯⋯（約 10–30 秒，別關掉這個分頁）');
+    try{
+      const r = await fetch(BRIDGE + '/api/pdf', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({file, note: box.value, off})
+      });
+      const d = await r.json().catch(() => ({}));
+      if(!(r.ok && d.ok)) throw new Error(d.error || ('HTTP ' + r.status));
+      setMsg(`已存成 ${d.pdf}（${(d.bytes/1048576).toFixed(1)} MB）`, 'ok');
+    }catch(e){
+      // 服務叫不動（沒啟動，或瀏覽器擋掉 file:// 頁面對本機的請求）就退回列印視窗
+      setMsg('連不到本機轉檔服務，改開瀏覽器列印視窗——那條路的存檔位置要自己挑。', 'err');
+      setTimeout(() => window.print(), 60);
+    }finally{
+      printBtn.disabled = false;
+    }
   });
   /* ── 發送到 Telegram ──
      報告自己不碰 bot token（報告會被分享出去），也不自己產 PDF——window.print() 產出的
