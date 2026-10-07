@@ -184,7 +184,7 @@ python3 .claude/skills/us-stock-research/scripts/runlog.py add \
 
 1. **完整 submission 一律落地成 `.txt` 再處理，不進 context。** 單份 8-K 的完整提交檔可達 600KB 以上，10-Q 純文字約 14 萬字元（≈35K token）。
 2. **grep 前先確認行長。** 10-Q/10-K 開頭的 XBRL context 是單行數萬字元（`fetch_sec.py` 已過濾，但別的來源不一定）。用 `grep -o` 或 `cut -c1-200` 限制輸出寬度。
-3. **UA 必須帶信箱**，否則 403。`fetch_sec.py` 已內建，可用環境變數 `SEC_UA_EMAIL` 覆寫。
+3. **UA 必須帶信箱**，否則 403。`fetch_sec.py` 從環境變數 `SEC_UA_EMAIL` 讀（本機設在 `.claude/settings.local.json` 的 `env`，不進 git），沒設會直接報錯。
 4. **8-K 的 Item 2.02 本身沒有數字**，只寫「詳見 Exhibit 99.1」。數字在 EX-99.1／EX-99.2，一定要看 exhibit。
 
 ## Polygon 鐵則

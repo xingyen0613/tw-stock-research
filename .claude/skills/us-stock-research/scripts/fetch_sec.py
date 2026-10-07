@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """把一檔美股最近的 SEC filings 落地成純文字，供後續解析。
 
-SEC 要求 User-Agent 帶可聯絡信箱，否則回 403。預設值可用 SEC_UA_EMAIL 覆寫。
+SEC 要求 User-Agent 帶可聯絡信箱，否則回 403。信箱從環境變數 SEC_UA_EMAIL 讀，沒設就直接報錯。
 
 用法：
     python3 fetch_sec.py NVDA --out output/NVDA_20260819
@@ -12,9 +12,10 @@ SEC 要求 User-Agent 帶可聯絡信箱，否則回 403。預設值可用 SEC_U
 import argparse, json, html, os, re, sys, time, urllib.request
 from pathlib import Path
 
-# 這個信箱是 SEC 的存取條件（流量識別用，不會被公開）。本 repo 目前是 private；
-# 若哪天要轉成 public，先把預設值拿掉、改成只讀 SEC_UA_EMAIL 環境變數。
-UA = f"Stock-Analysis-Research {os.environ.get('SEC_UA_EMAIL', '160246771+xingyen0613@users.noreply.github.com')}"
+# 這個信箱是 SEC 的存取條件（流量識別用）。repo 是 public，所以不寫死在程式裡；
+# 本機設在 .claude/settings.local.json 的 env（該檔不進 git）。
+SEC_UA_EMAIL = os.environ.get("SEC_UA_EMAIL", "").strip()
+UA = f"Stock-Analysis-Research {SEC_UA_EMAIL}"
 TICKER_MAP = "https://www.sec.gov/files/company_tickers.json"
 SUBMISSIONS = "https://data.sec.gov/submissions/CIK{cik:010d}.json"
 ARCHIVE = "https://www.sec.gov/Archives/edgar/data/{cik}/{acc}.txt"
@@ -93,6 +94,9 @@ def main():
     ap.add_argument("--quarters", type=int, default=4, help="抓最近幾份 10-Q/10-K")
     ap.add_argument("--n8k", type=int, default=25, help="抓最近幾份 8-K")
     a = ap.parse_args()
+    if not SEC_UA_EMAIL:
+        sys.exit("[ERR] 沒設環境變數 SEC_UA_EMAIL。SEC 要求 User-Agent 帶聯絡信箱，"
+                 "請在 .claude/settings.local.json 的 env 加上 SEC_UA_EMAIL")
 
     out = Path(a.out)
     out.mkdir(parents=True, exist_ok=True)
