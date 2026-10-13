@@ -53,7 +53,8 @@ python3 .claude/skills/tw-stock-research/scripts/fetch_financials.py {代號} --
 curl -sL -d "step=9&kind=A&co_id={代號}&filename={檔名}.pdf" \
   "https://doc.twse.com.tw/server-java/t57sb01" > resp.html
 # resp.html 內文會有一行 <a href='/pdf/{檔名}_{時間戳}.pdf'>
-url=$(grep -oE "/pdf/[^']+\.pdf" resp.html | head -1)
+# resp.html 是 Big5 編碼，UTF-8 locale 下 grep 會當成二進位而抓不到，必須加 LC_ALL=C 與 -a
+url=$(LC_ALL=C grep -aoE "/pdf/[^']+\.pdf" resp.html | head -1)
 # 第二步：直接抓檔
 curl -sL -o out.pdf "https://doc.twse.com.tw${url}"
 ```
