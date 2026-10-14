@@ -4,6 +4,8 @@
 
 # Claude Code 本機個人設定
 .claude/settings.local.json
+# 本機預覽報告用的靜態伺服器設定（瀏覽器面板 preview_start 讀取）
+.claude/launch.json
 
 # 報告產出（不追蹤，每次重跑會重新產生）
 # 前導斜線是刻意的：只忽略專案根目錄的 reports/，這樣報告若被誤寫到別的目錄
