@@ -126,6 +126,34 @@ a{color:inherit}
   box-shadow:0 2px 12px rgba(0,0,0,.13);font-size:17px;line-height:1}
 #jump:hover{border-color:var(--ink)}
 
+/* ── 寬螢幕：左側目錄、右側固定筆記 ─────── */
+/* 只在螢幕夠寬時啟用。限定 screen，列印與本機轉 PDF（--print-to-pdf 走 print media）都不受影響。
+   筆記區的 DOM 位置不動——匯出功能靠 .wrap > section 掃章節——只用 position:fixed 移到右側。 */
+#toc{display:none}
+@media screen and (min-width:1400px){
+  :root{--toc-w:230px; --note-w:clamp(320px,22vw,420px)}
+  body{padding-left:calc(var(--toc-w) + 16px); padding-right:calc(var(--note-w) + 16px)}
+  #toc{display:block; position:fixed; left:0; top:0; bottom:0; width:var(--toc-w); z-index:5;
+    overflow-y:auto; padding:28px 12px 28px 16px; background:var(--paper);
+    border-right:1px solid var(--rule); font-size:13px; line-height:1.5}
+  #toc .toc-title{font-family:var(--mono); font-size:11px; letter-spacing:.16em;
+    color:var(--ink-soft); margin:0 0 8px 10px}
+  #toc .toc-part{font-family:var(--mono); font-size:11px; letter-spacing:.08em; font-weight:600;
+    color:var(--ink); margin:18px 0 4px 10px}
+  #toc a{display:flex; gap:6px; padding:4px 8px; border-left:2px solid transparent;
+    border-radius:0 3px 3px 0; color:var(--ink-soft); text-decoration:none}
+  #toc a:hover{color:var(--ink); background:rgba(0,0,0,.04)}
+  #toc a.on{color:var(--ink); font-weight:500; border-left-color:var(--l1); background:rgba(27,107,74,.08)}
+  #toc .n{font-family:var(--mono); font-size:11px; padding-top:2px; flex:none}
+  #notes{position:fixed; right:0; top:0; bottom:0; width:var(--note-w); margin:0; z-index:5;
+    display:flex; flex-direction:column; padding:24px 20px 14px; background:var(--paper);
+    border-left:1px solid var(--rule)}
+  #notes h2{font-size:18px; margin:.1em 0 .5em}
+  /* 側欄裡的筆記框填滿剩餘高度、內容多了在框內捲動（JS 的自動長高在這個模式會停用） */
+  #notes textarea{flex:1; min-height:0; height:auto!important; overflow-y:auto; font-size:14px}
+  #jump{display:none}              /* 目錄底部已有「匯出與分享」，右下角按鈕會壓到筆記欄 */
+}
+
 /* ── 列印／匯出 PDF ─────────────────── */
 @media print{
   @page{size:A4;margin:14mm 12mm}
@@ -152,7 +180,10 @@ a{color:inherit}
     max-width:100%!important;max-height:none!important}
   .scroll{overflow:visible}
   a{text-decoration:none}
-  #notes textarea{border:1px solid var(--rule);min-height:0;
+  /* 印鏡射層、不印 textarea：textarea 的高度由螢幕上的 JS 決定（寬螢幕側欄模式甚至不設高度），
+     直接印會被截斷；鏡射層是一般 div，高度跟著內容走 */
+  #notes textarea{display:none}
+  .note-print{display:block;border:1px solid var(--rule);border-radius:4px;padding:12px 14px;
     background:#fff;-webkit-print-color-adjust:exact;print-color-adjust:exact}
   .notes-bar{display:none}          /* 「已儲存 N 字／清空筆記」是螢幕上的操作列，不進 PDF */
   .cards{grid-template-columns:repeat(auto-fit,minmax(120px,1fr))}
@@ -161,6 +192,8 @@ a{color:inherit}
 </head>
 <!-- data-report 是筆記與匯出設定在 localStorage 的 key，每份報告要唯一 -->
 <body data-report="{{代號}}-{{產出日期}}">
+<!-- 目錄由下方 JS 依章節自動產生；放在 .wrap 外，才不會被匯出功能當成章節 -->
+<nav id="toc" class="no-print" aria-label="目錄"></nav>
 <div class="wrap">
 
 <header>
@@ -448,11 +481,15 @@ if (PB && !PB.skip_reason) {
   /* ── 筆記 ── */
   const box = document.getElementById('noteBox');
   const status = document.getElementById('noteStatus');
+  // 與 CSS 的寬螢幕斷點一致：成立時筆記固定在右側欄，左側顯示目錄
+  const SIDE = window.matchMedia('screen and (min-width:1400px)');
   // 自動長高：內容變多時「只加高」，不把 height 歸零重量。歸零會讓 textarea 瞬間縮回
   // min-height，瀏覽器為了讓游標可見而捲動整頁、並把 textarea 內部捲掉（overflow:hidden
   // 看不見捲軸），就是打字到下半部按 Enter 畫面會跳走、又找不到游標的原因。
   // 只有內容可能變少時才歸零重量，並在前後鎖住頁面捲動位置。
   const grow = () => {
+    // 側欄模式：高度交給 CSS（填滿側欄、框內捲動）。下面的 scrollTop 歸零在這裡會讓游標跑出視野
+    if(SIDE.matches){ box.style.height = ''; return; }
     const bd = box.offsetHeight - box.clientHeight;      // 上下 border（box-sizing:border-box）
     if(box.scrollHeight > box.clientHeight){
       box.style.height = (box.scrollHeight + bd) + 'px';
@@ -472,6 +509,7 @@ if (PB && !PB.skip_reason) {
   };
   box.value = (PRE ? PRE.note : store.get(K_NOTE)) || '';
   grow(); stamp();
+  SIDE.addEventListener('change', grow);   // 視窗縮放跨過斷點時，切換高度模式
 
   let timer;
   box.addEventListener('input', () => {
@@ -534,6 +572,63 @@ if (PB && !PB.skip_reason) {
     boxes.forEach(b => { if(off.includes(b.dataset.t)) b.checked = false; });
   }catch(e){}
   apply(false);
+
+  /* ── 目錄（寬螢幕左側）── */
+  const toc = document.getElementById('toc');
+  if(toc){
+    const link = (id, num, text) => {
+      const a = document.createElement('a');
+      a.href = '#' + id; a.dataset.t = id;
+      if(num){ const n = document.createElement('span'); n.className = 'n'; n.textContent = num; a.append(n); }
+      a.append(document.createTextNode(text));
+      return a;
+    };
+    const title = document.createElement('div');
+    title.className = 'toc-title'; title.textContent = '目錄';
+    toc.append(title, link('top', '', '回到頂部'));
+    nodes.forEach(el => {
+      if(el.id === 'export') return;
+      if(el.classList.contains('part')){
+        const p = document.createElement('div');
+        p.className = 'toc-part';
+        p.textContent = [...el.querySelectorAll('.eyebrow, h2')].map(x => x.textContent.trim()).join(' · ');
+        toc.append(p);
+        return;
+      }
+      const eb = el.querySelector('.eyebrow');
+      const h2 = el.querySelector('h2');
+      toc.append(link(el.id, eb && /^\d+$/.test(eb.textContent.trim()) ? eb.textContent.trim() : '',
+                      h2 ? h2.textContent.trim() : el.id));
+    });
+    const p = document.createElement('div');
+    p.className = 'toc-part'; p.textContent = '匯出';
+    toc.append(p, link('export', '', '匯出與分享'));
+
+    toc.addEventListener('click', e => {
+      const a = e.target.closest('a');
+      if(!a) return;
+      e.preventDefault();
+      const t = a.dataset.t;
+      if(t === 'top'){ window.scrollTo({top: 0, behavior: 'smooth'}); return; }
+      if(t === 'notes' && SIDE.matches){ box.focus(); return; }   // 筆記已固定在右側，直接把游標放進去
+      document.getElementById(t).scrollIntoView({behavior: 'smooth', block: 'start'});
+    });
+
+    // 捲動時標出目前所在章節：取「頂端已捲過視窗上緣 120px」的最後一節
+    const links = [...toc.querySelectorAll('a')].filter(a => a.dataset.t !== 'top');
+    let raf = 0;
+    const spy = () => {
+      raf = 0;
+      let on = null;
+      links.forEach(a => {
+        if(a.dataset.t === 'notes' && SIDE.matches) return;
+        if(document.getElementById(a.dataset.t).getBoundingClientRect().top <= 120) on = a;
+      });
+      links.forEach(a => a.classList.toggle('on', a === on));
+    };
+    window.addEventListener('scroll', () => { if(!raf) raf = requestAnimationFrame(spy); }, {passive: true});
+    spy();
+  }
 
   list.addEventListener('change', () => apply(true));
   document.getElementById('selAll').addEventListener('click', () => { boxes.forEach(b=>b.checked=true); apply(true); });
