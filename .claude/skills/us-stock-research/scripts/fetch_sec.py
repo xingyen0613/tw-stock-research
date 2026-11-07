@@ -105,6 +105,7 @@ def main():
 
     index = {"ticker": a.ticker.upper(), "cik": cik, "company": name,
              "ua": UA.split()[0] + " <email redacted>", "filings": []}
+    written = set()
 
     for f in list_filings(cik, a.quarters, a.n8k):
         acc = f["accessionNumber"]
@@ -128,6 +129,10 @@ def main():
             if len(text) < 200:
                 continue
             safe = f"{f['form']}_{f['filingDate']}_{dtype}".replace("/", "-")
+            # 同一天可能有多份同類 filing，檔名相同時加 accession，避免後者蓋掉前者
+            if safe in written:
+                safe = f"{safe}_{acc}"
+            written.add(safe)
             path = out / f"{safe}.txt"
             path.write_text(text, encoding="utf-8")
             entry["docs"].append({"type": dtype, "file": path.name,
