@@ -54,7 +54,7 @@ Phase A、B 全部派 subagent 執行，主對話不自己下場查資料。派�
 
 **A-1 官方文件下載（Haiku）** — 兩類文件都要抓：
 
-1. **法說會簡報**：查公開資訊觀測站的法人說明會一覽表，**先抓完該公司過去兩個民國年度的完整清單，依日期排序，再取最新 4 場**——不要查到幾場就當作抓完，同一季可能有 2-3 場券商投資人論壇，抓不完整清單就取「最新 4 場」會漏掉真正最新的那幾場。查清單這步 MOPS 查詢 API 會被 WAF 擋，**要用瀏覽器工具查、curl 下載檔案**，具體步驟見 `references/sources.md` 的「法說會簡報」段。下載到的 PDF（少數是 pptx）逐份跑 `pdftotext -layout`（pptx 用 unzip 取 XML 文字）落成 `.txt`。
+1. **法說會簡報**：查公開資訊觀測站的法人說明會一覽表，**先抓完該公司過去兩個民國年度的完整清單，依日期排序，再取最新 4 場**——不要查到幾場就當作抓完，同一季可能有 2-3 場券商投資人論壇，抓不完整清單就取「最新 4 場」會漏掉真正最新的那幾場。查清單這步**先用 curl 打舊版 MOPS 的 `ajax_t100sb02_1` 端點（`TYPEK=all`）**，新版 `mops/api/*` 才會被 WAF 擋；**curl 結果有缺漏時，一樣要改用瀏覽器或公司官網、新聞補查**，缺漏判準與兩套步驟見 `references/sources.md` 的「法說會簡報」段。同一份簡報常掛在多場論壇，「最新 4 場」要依檔名去重。下載到的 PDF（少數是 pptx）逐份跑 `pdftotext -layout`（pptx 用 unzip 取 XML 文字）落成 `.txt`。
 2. **最新年報與最新一季合併財報**：從 MOPS 財務報告書查詢頁取得檔名，用 `doc.twse.com.tw` 的兩段式 curl 下載（做法見 `references/sources.md`），`pdftotext -layout` 後落成 `.txt`。這是給 A-3 讀「部門資訊」附注用的，不是給 A-2（A-2 的 FinMind 資料不含附注）。
 
 **只回報檔案路徑與每份的頁數／日期，不要把內容貼回來。**
@@ -278,9 +278,9 @@ Haiku 錯一次就升 Sonnet，不要在 Haiku 上重試第二次。
 > `python3 .claude/skills/tw-stock-research/scripts/pdf_chart_probe.py <pdf> <page> -p '%$'`，
 > 用它輸出的 x 座標分群去對齊 X 軸標籤：最接近某軸標籤的群即該欄位數值，落在所有軸標籤之外的群是版面重印，不是資料。
 
-**A-1 的 prompt 裡必須原文帶上這段**（MOPS 查詢已改版，2026-09 之前寫的「直接 curl API」做法會被 WAF 擋）：
+**A-1 的 prompt 裡必須原文帶上這段**（2026-11-07 更新：新版 `mops/api/*` 會被 WAF 擋，舊版 `mopsov` 的 `ajax_*` 端點 curl 可用）：
 
-> **MOPS 查清單鐵則**：查法人說明會一覽表或財務報告書清單時，`curl` 打 `mops.twse.com.tw/mops/api/*` 系列端點會被 WAF 擋下，**改用瀏覽器工具**查（開頁面、填表單、點查詢，再用 `read_network_requests` 找 `POST /mops/api/redirectToOld` 的回應拿到帶簽名參數的結果網址，`navigate` 過去讀表格）。**先抓完該公司過去兩個民國年度的完整清單再依日期排序取最新4場，不要抓到幾場就當作抓完**——高力(8996) 2025-2026 兩年開了15場投資人論壇，只查一部分會漏掉真正最新的場次。查到確切檔名之後，下載 PDF／財報本身是純 curl，不需要瀏覽器，做法見 `references/sources.md`。
+> **MOPS 查清單鐵則**：查法人說明會一覽表時，**先用 curl POST 舊版端點** `https://mopsov.twse.com.tw/mops/web/ajax_t100sb02_1`（參數 `encodeURIComponent=1&step=1&firstin=1&off=1&TYPEK=all&co_id={代號}&year={民國年}&month=all`，帶 `-A "Mozilla/5.0"` 與 Referer `https://mopsov.twse.com.tw/mops/web/t100sb02_1`）。`TYPEK` 一律填 `all`，填錯市場別會回「查無資料」造成假陰性。財報檔名清單用 curl GET `https://doc.twse.com.tw/server-java/t57sb01?step=1&colorchg=1&co_id={代號}&year={民國年}&seamon=&mtype=A&`，只取 `_AI1.pdf`。**先抓完該公司過去兩個民國年度的完整清單再依日期排序，依檔名去重後取最新 4 份不同簡報，不要抓到幾場就當作抓完**——高力(8996) 2025-2026 兩年開了15場投資人論壇，只查一部分會漏掉真正最新的場次。**curl 有缺漏一樣要另外查**：查無資料、簡報檔名空白、最新一場距今超過一季、媒體報導過的場次不在清單、最新一季財報檔名不在清單，任一情況都要改用瀏覽器（開 `https://mops.twse.com.tw/mops/#/web/t100sb02_1`，用 `read_network_requests` 找 `POST /mops/api/redirectToOld` 回應裡帶簽名參數的網址，`navigate` 過去讀表格；只讀文字不截圖）或公司官網、新聞補查，並在回報寫明缺了什麼、怎麼補。下載 PDF／財報本身是純 curl，做法見 `references/sources.md`。
 
 **A-3 的 prompt 裡必須原文帶上這段**：
 
