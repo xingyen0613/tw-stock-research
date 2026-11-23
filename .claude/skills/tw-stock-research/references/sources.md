@@ -25,7 +25,8 @@ python3 .claude/skills/tw-stock-research/scripts/fetch_financials.py {代號} --
 已驗證的事實（2026-08 實測 3533）：
 
 - **免 token 可用**。免費層 600 req/hr，本腳本一檔只用 5 個 request。環境若有 `$FINMIND_TOKEN` 會自動帶上。
-- **損益表與現金流是單季值，不是累計值**，不需要還原。資產負債表是期末餘額。
+- **損益表是單季值**，不需要還原。資產負債表是期末餘額。
+- **現金流量表是年初至今累計值，不是單季值**（2026-11 以 2454 季報核對發現；舊版本文件寫錯）。腳本已差分：`operating_cash_flow` 是單季值，`operating_cash_flow_ytd` 是累計原值。季報原文的現金流量表也是累計數，核對時要對 `_ytd`。
 - 資料源是公開資訊觀測站財報。標 L1 時要在 MOPS 對得上；對不上就標 L2。腳本輸出的 `meta.mops_url` 是該公司財報查詢頁，可直接當引用連結。
 
 ### 法說會簡報 → 舊版 MOPS ajax 端點（curl）查清單 + curl 抓檔

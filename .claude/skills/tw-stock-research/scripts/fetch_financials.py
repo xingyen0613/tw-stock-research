@@ -7,8 +7,10 @@
 免 token 即可使用（免費層 600 req/hr，本腳本一檔用 5 個 request）。
 若環境有 $FINMIND_TOKEN 會自動帶上，額度較寬。
 
-FinMind 的損益表與現金流量表是**單季值**，不是累計值，不需要還原。
-資產負債表是期末餘額。全部驗證於 2026-08。
+FinMind 的損益表是**單季值**，不需要還原（驗證於 2026-08）。
+FinMind 的現金流量表是**年初至今累計值**（2026-11 以 2454 季報核對發現），
+本腳本把它差分成單季值放在 operating_cash_flow，累計原值放在 operating_cash_flow_ytd。
+資產負債表是期末餘額。
 """
 
 import argparse
@@ -99,8 +101,18 @@ def main():
             "debt_ratio": pct(b.get("Liabilities"), b.get("TotalAssets")),
             "roe_quarterly": pct(net, equity_parent),
             "book_value_per_share": div(equity_parent, shares),
-            "operating_cash_flow": cfs.get(d, {}).get("NetCashInflowFromOperatingActivities"),
+            "operating_cash_flow_ytd": cfs.get(d, {}).get("NetCashInflowFromOperatingActivities"),
         }
+
+    # 現金流量表是年初至今累計值：Q1 原值即單季，Q2～Q4 減去同年前一季累計值
+    prev_q = {"06": "03-31", "09": "06-30", "12": "09-30"}
+    for d in quarters:
+        ytd = series[d]["operating_cash_flow_ytd"]
+        if d[5:7] == "03":
+            series[d]["operating_cash_flow"] = ytd
+        else:
+            prior = series.get(f"{d[:4]}-{prev_q[d[5:7]]}", {}).get("operating_cash_flow_ytd")
+            series[d]["operating_cash_flow"] = ytd - prior if (ytd is not None and prior is not None) else None
 
     # QoQ / YoY（YoY 取前 4 季）
     for n, d in enumerate(quarters):
@@ -125,7 +137,7 @@ def main():
             "name": info[0].get("stock_name") if info else None,
             "industry": info[0].get("industry_category") if info else None,
             "source": "FinMind API",
-            "source_note": "原始出處為公開資訊觀測站財報，經 FinMind 整理。單季值，非累計。",
+            "source_note": "原始出處為公開資訊觀測站財報，經 FinMind 整理。損益與 operating_cash_flow 為單季值；operating_cash_flow_ytd 為年初至今累計原值。",
             "mops_url": f"{MOPS_FS}?encodeURIComponent=1&run=Y&step=1&co_id={sid}",
             "unit": "新台幣元（比率為 %，EPS 為元）",
             "tier_hint": "L1（數字源自官方財報；若報告要標 L1 需在 MOPS 對得上，否則標 L2）",
