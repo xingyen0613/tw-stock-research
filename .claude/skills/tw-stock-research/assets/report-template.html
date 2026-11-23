@@ -409,8 +409,8 @@ new Chart(c4, {data:{labels:QUARTERS, datasets:[
    pointRadius:4, pointBackgroundColor:SURFACE, pointBorderWidth:2, tension:.25, yAxisID:'y1'}
 ]}, options:{maintainAspectRatio:false,
   interaction:{mode:'index', intersect:false},
-  scales:{x:{grid:{display:false}}, y:{position:'left'},
-          y1:{position:'right',grid:{display:false}}},
+  scales:{x:{grid:{display:false}}, y:{position:'left', beginAtZero:true},
+          y1:{position:'right', beginAtZero:true, grid:{display:false}}},  // 雙軸都從 0 起算，避免 EPS 小幅變動被放大
   plugins:{legend:{position:'bottom'}}}});
 
 // 圖 5 — 本益比河流圖（資料由 scripts/fetch_pe_band.py 產出的 pe_band.json 帶入）
