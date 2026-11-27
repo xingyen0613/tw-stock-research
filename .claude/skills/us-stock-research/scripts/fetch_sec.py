@@ -96,7 +96,9 @@ def main():
     a = ap.parse_args()
     if not SEC_UA_EMAIL:
         sys.exit("[ERR] 沒設環境變數 SEC_UA_EMAIL。SEC 要求 User-Agent 帶聯絡信箱，"
-                 "請在 .claude/settings.local.json 的 env 加上 SEC_UA_EMAIL")
+                 "請在 .claude/settings.local.json 的 env 加上 SEC_UA_EMAIL"
+                 "（範本：.claude/settings.local.json.example；"
+                 "完整檢查：python3 .claude/hooks/check-setup.py）")
 
     out = Path(a.out)
     out.mkdir(parents=True, exist_ok=True)

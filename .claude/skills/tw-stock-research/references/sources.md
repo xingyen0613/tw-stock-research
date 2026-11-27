@@ -135,7 +135,7 @@ python3 .claude/skills/tw-stock-research/scripts/fetch_pe_band.py {代號} --yea
 
 ### 股價、法人買賣超、融資券
 
-同樣走 FinMind（`TaiwanStockPrice`、`TaiwanStockPER`、`TaiwanStockInstitutionalInvestorsBuySell`、`TaiwanStockMarginPurchaseShortSale`），用法見 `~/.claude/commands/finmind.md`。
+同樣走 FinMind（`TaiwanStockPrice`、`TaiwanStockPER`、`TaiwanStockInstitutionalInvestorsBuySell`、`TaiwanStockMarginPurchaseShortSale`），各 dataset 的參數與欄位見 FinMind 官方文件 https://finmind.github.io/ 。
 
 ### 什麼**不能**程序化取得
 

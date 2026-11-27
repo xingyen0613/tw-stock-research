@@ -35,6 +35,18 @@ description: 產出美股個股的深度研究報告（單檔 HTML，含來源�
 
 分五個 Phase，**不要邊查邊寫**。Phase A、B 全部派 subagent，主對話不自己下場查資料。
 
+### Phase 0 — 開工前檢查（每次都跑，幾秒鐘）
+
+```bash
+python3 .claude/hooks/check-setup.py --skill us
+```
+
+- **結束碼 1（缺必要項目，通常是 `SEC_UA_EMAIL`）**：停下來，不要開始查資料。把腳本印出的缺漏項目與設定步驟轉述給使用者，等使用者說設好了再重跑一次確認。
+- 使用者要你幫忙設定時，只把他提供的值寫進 `.claude/settings.local.json` 的 `env`。重跑檢查若顯示「還沒載入」，請使用者重開 Claude Code。
+- **再用 ToolSearch 查 `massive polygon call_api query_data`**，確認有沒有 Massive（原 Polygon.io）的 MCP 工具：
+  - 有：A-2 照下方「Polygon 鐵則」走。
+  - 沒有：用一段話告知使用者「沒有 Massive MCP，報告照樣能做，但財務改用 SEC XBRL、股價改用 Yahoo；要裝的話到 https://massive.com 免費申請 API key，安裝指令在 README 的 Massive (Polygon) MCP 段落」。然後照常開工，不要等回覆，A-2 走「Polygon 鐵則」第 9 條的替代做法。
+
 ### Phase A — 官方資料
 
 **A-1 SEC filings 落地（Haiku）**
@@ -210,6 +222,7 @@ FROM {table} ORDER BY end_date DESC
 6. Polygon 的三表是 **L1′**，引用時 `source_url` 用 `source_filing_url`（指向 SEC）。**用它與 EX-99.1 的數字交叉對帳**：實測 NVDA FY27Q1 兩邊毛利率都是 74.9%，對不上就是有一邊抓錯期間。
 7. `financial-datasets` MCP **沒有 API key、完全不可用**，不要嘗試。
 8. 存進 workspace 的表**支援 FTS5 全文搜尋**，查 8-K 內容時很省 token：`WHERE {table} MATCH 'SB Energy' ORDER BY rank`，配 `snippet()` 只取命中片段。
+9. **沒有 Polygon／Massive 工具時（Phase 0 用 ToolSearch 查不到）**：財務改用 SEC XBRL companyfacts（`https://data.sec.gov/api/xbrl/companyfacts/CIK{10 位數 CIK}.json`，同樣要帶 `SEC_UA_EMAIL` 的 User-Agent），算 **L1′**，並與 8-K EX-99.1 逐季對帳；股價改用 Yahoo Finance chart API 自算月均價，算 **L3**。LITE（2026-10-30）與 BE（2026-11-22）兩次都是這樣跑完的，見 `runlog/runs.jsonl`。
 
 ## 模型分配
 

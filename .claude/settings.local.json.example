@@ -1,0 +1,6 @@
+{
+  "env": {
+    "SEC_UA_EMAIL": "you@example.com",
+    "FINMIND_TOKEN": "paste-your-finmind-token-here"
+  }
+}

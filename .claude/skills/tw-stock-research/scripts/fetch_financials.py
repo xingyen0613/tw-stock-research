@@ -36,7 +36,10 @@ def fetch(dataset, stock_id, start, end=None):
     with urllib.request.urlopen(req, timeout=40) as r:
         body = json.load(r)
     if body.get("status") != 200:
-        sys.exit(f"[{dataset}] FinMind 回應失敗：{body.get('msg')}")
+        hint = "" if token else (
+            "。沒設 FINMIND_TOKEN 時用的是匿名額度，可能已用盡；到 https://finmindtrade.com/ "
+            "免費註冊拿 token，填進 .claude/settings.local.json 的 env.FINMIND_TOKEN")
+        sys.exit(f"[{dataset}] FinMind 回應失敗：{body.get('msg')}{hint}")
     return body.get("data", [])
 
 
