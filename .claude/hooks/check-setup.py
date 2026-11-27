@@ -147,7 +147,9 @@ def print_report(checks, settings_error):
 
 
 def hook_output(checks, settings_error):
-    missing = [c for c in checks if c["required"] and c["status"] != "ok"]
+    # session 剛啟動時 settings.local.json 已經讀過，"pending" 只代表值沒傳到 hook 程序，
+    # 不代表使用者沒設，所以這裡也算設好了，避免已設定的人每次開 session 都被提醒。
+    missing = [c for c in checks if c["required"] and c["status"] not in ("ok", "pending")]
     if not missing and not settings_error:
         return  # 都齊了就保持安靜
     names = "、".join(c["name"] for c in missing) or "settings.local.json 格式"
